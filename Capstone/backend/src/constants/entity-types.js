@@ -1,0 +1,16 @@
+export const ENTITY_TYPES = [
+  'company',
+  'store',
+  'product',
+  'supplier',
+  'warehouse',
+  'customer',
+  'purchase_order',
+  'goods_receipt',
+  'inventory_transaction',
+  'sales_order',
+  'invoice',
+  'payment',
+  'audit_log',
+  'blockchain_record',
+]

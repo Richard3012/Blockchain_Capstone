@@ -1,0 +1,300 @@
+import { create } from 'zustand'
+import { PRODUCTS, CUSTOMERS, ORDERS, INVOICES, TICKETS, AUDIT_LOG, BLOCKCHAIN_TXS, REVENUE_HISTORY } from '../data/seed'
+
+export const useStore = create((set, get) => ({
+  // Navigation
+  currentPage: 'dashboard',
+  setCurrentPage: (page) => set({ currentPage: page }),
+  activePage: 'dashboard', // Alias for backward compatibility
+  setActivePage: (page) => set({ currentPage: page, activePage: page }),
+  sidebarCollapsed: false,
+  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+
+  // Auth / RBAC
+  user: {
+    name: 'Alex Thompson',
+    role: 'admin',
+    initials: 'AT',
+    email: 'alex@company.com',
+    phone: '+1 (555) 123-4567',
+    department: 'Operations'
+  },
+  setUser: (userData) => set((state) => ({ user: { ...state.user, ...userData } })),
+  setUserRole: (role) => set((state) => ({ user: { ...state.user, role } })),
+  
+  // Role-based permissions
+  roles: {
+    admin: {
+      label: 'Admin',
+      permissions: ['view_all', 'edit_all', 'delete_all', 'manage_users', 'view_analytics', 'view_blockchain', 'view_audit', 'manage_settings', 'view_dashboard', 'view_orders', 'view_customers', 'view_inventory'],
+      description: 'Full ERP access across master data, transactions, settings, and verification'
+    },
+    manager: {
+      label: 'Operations Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_customers', 'view_inventory', 'view_analytics', 'view_blockchain', 'view_audit', 'edit_orders', 'edit_inventory', 'edit_customers'],
+      description: 'Operational ERP access for inventory, orders, invoicing, and reporting'
+    },
+    viewer: {
+      label: 'Read Only',
+      permissions: ['view_dashboard', 'view_orders', 'view_customers', 'view_inventory'],
+      description: 'Read-only ERP access to core operational data'
+    }
+  },
+  hasPermission: (permission) => {
+    const user = get().user
+    const roles = get().roles
+    const userRole = roles[user.role]
+    if (!userRole) return false
+    return userRole.permissions.includes(permission) || userRole.permissions.includes('view_all')
+  },
+
+  // Real-time metrics (Dashboard KPIs)
+  metrics: {
+    totalRevenue: 0,
+    totalOrders: 0,
+    activeCustomers: 0,
+    pendingOrders: 0,
+    lowStockCount: 0,
+  },
+  updateMetrics: (options = {}) => set((state) => {
+    if (options.revenueOnly) {
+      return {
+        metrics: {
+          ...state.metrics,
+          totalRevenue: state.metrics.totalRevenue + (options.delta || 0)
+        }
+      }
+    }
+    return {
+      metrics: state.metrics
+    }
+  }),
+
+  // Revenue History for charts
+  revenueHistory: [...REVENUE_HISTORY],
+  
+  // Orders
+  orders: [...ORDERS],
+  addOrder: (order) => set((state) => ({ orders: [order, ...state.orders] })),
+  updateOrderStatus: (id, status) => set((state) => ({
+    orders: state.orders.map(o => o.id === id ? { ...o, status } : o)
+  })),
+
+  // Invoices
+  invoices: [...INVOICES],
+  addInvoice: (invoice) => set((state) => ({ invoices: [invoice, ...state.invoices] })),
+  updateInvoiceStatus: (id, status) => set((state) => ({
+    invoices: state.invoices.map(i => i.id === id ? { ...i, status } : i)
+  })),
+
+  // Customers
+  customers: [...CUSTOMERS],
+  addCustomer: (customer) => set((state) => ({ 
+    customers: [{ ...customer, id: state.customers.length + 1 }, ...state.customers] 
+  })),
+  updateCustomer: (id, data) => set((state) => ({
+    customers: state.customers.map(c => c.id === id ? { ...c, ...data } : c)
+  })),
+
+  // Inventory
+  inventory: [...PRODUCTS],
+  restockProduct: (id, qty) => set((state) => ({
+    inventory: state.inventory.map(p => {
+      if (p.id === id) {
+        const newStock = p.stock + qty
+        return { 
+          ...p, 
+          stock: newStock, 
+          status: newStock > p.reorderLevel ? 'In Stock' : newStock > 0 ? 'Low Stock' : 'Out of Stock',
+          lastRestocked: new Date().toISOString().split('T')[0]
+        }
+      }
+      return p
+    })
+  })),
+  updateStockLevel: (id, delta) => set((state) => ({
+    inventory: state.inventory.map(p => {
+      if (p.id === id) {
+        const newStock = Math.max(0, p.stock + delta)
+        let status = p.status
+        if (newStock <= 0) {
+          status = 'Out of Stock'
+        } else if (newStock <= p.reorderLevel) {
+          status = 'Low Stock'
+        } else {
+          status = 'In Stock'
+        }
+        return { ...p, stock: newStock, status }
+      }
+      return p
+    })
+  })),
+
+  // Support Tickets
+  tickets: [...TICKETS],
+  addTicket: (ticket) => set((state) => ({ 
+    tickets: [{ 
+      ...ticket, 
+      id: `TKT-${String(state.tickets.length + 1).padStart(5, '0')}`,
+      createdAt: new Date().toISOString().split('T')[0],
+      updatedAt: new Date().toISOString().split('T')[0]
+    }, ...state.tickets] 
+  })),
+  updateTicketStatus: (id, status) => set((state) => ({
+    tickets: state.tickets.map(t => t.id === id ? { ...t, status, updatedAt: new Date().toISOString().split('T')[0] } : t)
+  })),
+
+  // Audit Log
+  auditLog: [...AUDIT_LOG],
+  appendAuditEntry: (entry) => set((state) => ({
+    auditLog: [entry, ...state.auditLog].slice(0, 500)
+  })),
+
+  // Blockchain Activity
+  blockchainTxs: [...BLOCKCHAIN_TXS],
+  appendBlockchainTx: (tx) => set((state) => ({
+    blockchainTxs: [tx, ...state.blockchainTxs].slice(0, 500)
+  })),
+
+  // Toast notifications
+  toasts: [],
+  addToast: (message, type = 'info') => set((state) => ({
+    toasts: [...state.toasts, { id: Date.now(), message, type }]
+  })),
+  removeToast: (id) => set((state) => ({
+    toasts: state.toasts.filter(t => t.id !== id)
+  })),
+
+  // Modal
+  modal: null,
+  openModal: (type, data = {}) => set({ modal: { type, data } }),
+  closeModal: () => set({ modal: null }),
+
+  // Search
+  searchQuery: '',
+  setSearchQuery: (query) => set({ searchQuery: query }),
+
+  // Notifications count
+  notificationCount: 2,
+  incrementNotifications: () => set((state) => ({ notificationCount: state.notificationCount + 1 })),
+  clearNotifications: () => set({ notificationCount: 0 }),
+
+  // Settings state
+  settingsTab: 'profile',
+  setSettingsTab: (tab) => set({ settingsTab: tab }),
+  
+  // Notification settings
+  notificationSettings: {
+    email: true,
+    sms: false,
+    blockchain: true,
+    lowStock: true,
+    invoiceReminders: true,
+    ticketUpdates: true,
+  },
+  toggleNotificationSetting: (key) => set((state) => ({
+    notificationSettings: {
+      ...state.notificationSettings,
+      [key]: !state.notificationSettings[key]
+    }
+  })),
+
+  // Appearance settings
+  theme: 'light',
+  setTheme: (theme) => set({ theme }),
+  accentColor: '#4361ee',
+  setAccentColor: (color) => set({ accentColor: color }),
+  density: 'normal',
+  setDensity: (density) => set({ density }),
+
+  // Computed selectors
+  getOrderStats: () => {
+    const orders = get().orders
+    return {
+      total: orders.length,
+      processing: orders.filter(o => o.status === 'Processing').length,
+      shipped: orders.filter(o => o.status === 'Shipped').length,
+      delivered: orders.filter(o => o.status === 'Delivered').length,
+      cancelled: orders.filter(o => o.status === 'Cancelled').length,
+      pending: orders.filter(o => o.status === 'Pending').length,
+      totalValue: orders.reduce((sum, order) => sum + (order.total || order.amount || 0), 0),
+    }
+  },
+  getInvoiceStats: () => {
+    const invoices = get().invoices
+    const paidInvoices = invoices.filter(i => i.status === 'Paid')
+    const overdueInvoices = invoices.filter(i => i.status === 'Overdue')
+    const pendingInvoices = invoices.filter(i => i.status === 'Sent' || i.status === 'Draft')
+    return {
+      total: invoices.length,
+      paid: paidInvoices.length,
+      paidValue: paidInvoices.reduce((sum, i) => sum + i.amount, 0),
+      overdue: overdueInvoices.length,
+      overdueValue: overdueInvoices.reduce((sum, i) => sum + i.amount, 0),
+      pending: pendingInvoices.length,
+      pendingValue: pendingInvoices.reduce((sum, i) => sum + i.amount, 0),
+      totalValue: invoices.reduce((sum, i) => sum + i.amount, 0),
+    }
+  },
+  getInventoryStats: () => {
+    const inventory = get().inventory
+    return {
+      total: inventory.length,
+      inStock: inventory.filter(p => p.status === 'In Stock').length,
+      lowStock: inventory.filter(p => p.status === 'Low Stock').length,
+      outOfStock: inventory.filter(p => p.status === 'Out of Stock').length,
+      totalValue: inventory.reduce((sum, p) => sum + (p.price * p.stock), 0),
+    }
+  },
+  getTicketStats: () => {
+    const tickets = get().tickets
+    return {
+      total: tickets.length,
+      open: tickets.filter(t => t.status === 'open').length,
+      inProgress: tickets.filter(t => t.status === 'in-progress').length,
+      resolved: tickets.filter(t => t.status === 'resolved').length,
+      closed: tickets.filter(t => t.status === 'closed').length,
+      critical: tickets.filter(t => t.priority === 'CRITICAL').length,
+    }
+  },
+  getCustomerStats: () => {
+    const customers = get().customers
+    const activeCustomers = customers.filter(c => c.status === 'active')
+    const totalLifetimeValue = customers.reduce((sum, c) => sum + (c.lifetimeValue || c.totalSpent || 0), 0)
+    return {
+      total: customers.length,
+      active: activeCustomers.length,
+      withOrders: customers.filter(c => (c.orders || 0) > 0).length,
+      inactive: customers.filter(c => c.status === 'inactive').length,
+      totalLifetimeValue: totalLifetimeValue,
+      avgLifetimeValue: customers.length > 0 ? totalLifetimeValue / customers.length : 0,
+    }
+  },
+  getBlockchainStats: () => {
+    const txs = get().blockchainTxs
+    const last24Hours = Date.now() - (24 * 60 * 60 * 1000)
+    return {
+      total: txs.length,
+      confirmed: txs.filter(t => t.status === 'Verified' || t.status === 'Confirmed').length,
+      pending: txs.filter(t => t.status === 'Pending').length,
+      failed: 0,
+      todayCount: txs.filter((tx) => new Date(tx.timestamp).getTime() >= last24Hours).length,
+    }
+  },
+  getAuditStats: () => {
+    const logs = get().auditLog
+    const today = new Date().toISOString().split('T')[0]
+    const uniqueUsers = new Set(logs.filter(l => {
+      const logDate = new Date(l.timestamp)
+      const now = new Date()
+      return (now - logDate) < 24 * 60 * 60 * 1000
+    }).map(l => l.user))
+    
+    return {
+      total: logs.length,
+      today: logs.filter(l => l.timestamp.startsWith(today)).length,
+      withHash: logs.filter(l => l.hash).length,
+      activeUsers: uniqueUsers.size,
+    }
+  },
+}))

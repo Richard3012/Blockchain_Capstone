@@ -1,0 +1,85 @@
+import { ethers } from 'ethers'
+
+import { env } from '../config/env.js'
+import { BlockchainRecord } from '../models/blockchain-record.model.js'
+import { logger } from '../utils/logger.js'
+
+const recordAnchorAbi = [
+  'function anchorRecord(string entityType,string entityId,bytes32 recordHash,string ipfsCid,address actor) external returns (bytes32)',
+  'function verifyRecord(string entityType,string entityId,bytes32 recordHash) external view returns (bool)',
+  'function getRecord(string entityType,string entityId) external view returns (tuple(string entityType,string entityId,bytes32 recordHash,string ipfsCid,uint256 anchoredAt,address actor,bool exists,bool revoked))',
+]
+
+const getContract = () => {
+  if (!env.recordAnchorAddress || !env.blockchainPrivateKey) {
+    return null
+  }
+
+  const provider = new ethers.JsonRpcProvider(env.blockchainRpcUrl)
+  const wallet = new ethers.Wallet(env.blockchainPrivateKey, provider)
+  return {
+    wallet,
+    contract: new ethers.Contract(env.recordAnchorAddress, recordAnchorAbi, wallet),
+  }
+}
+
+export const blockchainService = {
+  async anchorRecord({ companyId, entityType, entityId, recordHash, ipfsCid, requestedBy, actorAddress }) {
+    const connection = getContract()
+
+    const blockchainRecord = await BlockchainRecord.create({
+      companyId,
+      entityType,
+      entityId: entityId.toString(),
+      recordHash,
+      ipfsCid: ipfsCid || '',
+      status: connection ? 'pending' : 'failed',
+      requestedBy,
+      errorMessage: connection ? undefined : 'Blockchain contract not configured',
+    })
+
+    if (!connection) {
+      logger.warn('blockchain.anchor_skipped', { entityType, entityId: entityId.toString(), reason: 'contract_not_configured' })
+      return blockchainRecord
+    }
+
+    const { contract, wallet } = connection
+    const anchoredBy = ethers.isAddress(actorAddress) ? actorAddress : wallet.address
+
+    logger.info('blockchain.tx_sent', { entityType, entityId: entityId.toString(), recordHash })
+
+    const transaction = await contract.anchorRecord(entityType, entityId.toString(), recordHash, ipfsCid || '', anchoredBy)
+    const receipt = await transaction.wait()
+
+    blockchainRecord.status = 'anchored'
+    blockchainRecord.txHash = transaction.hash
+    blockchainRecord.blockNumber = receipt.blockNumber
+    blockchainRecord.contractAddress = contract.target
+    blockchainRecord.anchoredAt = new Date()
+    await blockchainRecord.save()
+
+    logger.info('blockchain.tx_confirmed', {
+      entityType,
+      entityId: entityId.toString(),
+      txHash: transaction.hash,
+      blockNumber: receipt.blockNumber,
+    })
+
+    return blockchainRecord
+  },
+
+  async verifyRecord(entityType, entityId, recordHash) {
+    const connection = getContract()
+    if (!connection) {
+      return { verified: false, configured: false }
+    }
+
+    const { contract } = connection
+    const verified = await contract.verifyRecord(entityType, entityId.toString(), recordHash)
+    return { verified, configured: true }
+  },
+
+  async getLedger(companyId) {
+    return BlockchainRecord.find({ companyId }).sort({ createdAt: -1 })
+  },
+}

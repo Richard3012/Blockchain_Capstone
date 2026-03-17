@@ -1,0 +1,15 @@
+export const erpNavigation = [
+  { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', permission: 'view_dashboard' },
+  { id: 'master-data', label: 'Master Data', icon: 'layers', permission: 'view_all' },
+  { id: 'procurement', label: 'Procurement', icon: 'truck', permission: 'view_all' },
+  { id: 'erp-analytics', label: 'ERP Analytics', icon: 'chart', permission: 'view_analytics' },
+  { id: 'blockchain', label: 'Verification Ledger', icon: 'blocks', permission: 'view_blockchain' },
+  { id: 'orders', label: 'Sales Orders', icon: 'cart', permission: 'view_orders' },
+  { id: 'invoices', label: 'Invoices', icon: 'document', permission: 'view_orders' },
+  { id: 'customers', label: 'Customers', icon: 'users', permission: 'view_customers' },
+  { id: 'inventory', label: 'Inventory', icon: 'box', permission: 'view_inventory' },
+  { id: 'finance', label: 'Finance', icon: 'wallet', permission: 'view_analytics' },
+  { id: 'support', label: 'Support', icon: 'headset', permission: 'view_dashboard' },
+  { id: 'audit', label: 'Audit Log', icon: 'clipboard', permission: 'view_audit' },
+  { id: 'settings', label: 'Settings', icon: 'settings', permission: 'manage_settings' },
+]
