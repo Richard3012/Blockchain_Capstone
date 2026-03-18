@@ -9,9 +9,14 @@ export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseNumber(process.env.PORT, 4000),
   mongoUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/blockerp',
+  mongoFallback: process.env.MONGO_FALLBACK !== 'false',
   jwtSecret: process.env.JWT_SECRET || 'replace-this-in-env',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  clientOrigins: (process.env.CLIENT_ORIGINS || process.env.CLIENT_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   blockchainRpcUrl: process.env.BLOCKCHAIN_RPC_URL || 'http://127.0.0.1:8545',
   blockchainPrivateKey: process.env.BLOCKCHAIN_PRIVATE_KEY || '',
   recordAnchorAddress: process.env.RECORD_ANCHOR_ADDRESS || '',

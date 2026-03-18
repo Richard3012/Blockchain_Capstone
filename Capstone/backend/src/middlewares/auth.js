@@ -1,7 +1,10 @@
 import jwt from 'jsonwebtoken'
 
+import { databaseState } from '../config/database.js'
 import { env } from '../config/env.js'
+import { runtime } from '../config/runtime.js'
 import { User } from '../models/user.model.js'
+import { DEV_FALLBACK_USER } from '../services/dev-fallback.service.js'
 
 export const requireAuth = async (req, _res, next) => {
   try {
@@ -15,6 +18,24 @@ export const requireAuth = async (req, _res, next) => {
     }
 
     const payload = jwt.verify(token, env.jwtSecret)
+    if (payload.sid !== runtime.bootId) {
+      const error = new Error('Session expired. Please log in again.')
+      error.statusCode = 401
+      throw error
+    }
+
+    if (!databaseState.connected) {
+      if (payload.sub !== DEV_FALLBACK_USER._id || !DEV_FALLBACK_USER.isActive) {
+        const error = new Error('User is not authorized')
+        error.statusCode = 401
+        throw error
+      }
+
+      req.user = DEV_FALLBACK_USER
+      next()
+      return
+    }
+
     const user = await User.findById(payload.sub).select('-passwordHash')
 
     if (!user || !user.isActive) {

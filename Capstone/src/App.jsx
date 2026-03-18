@@ -1,9 +1,9 @@
-import { useStore } from './store/useStore'
-import { useRealTime } from './hooks/useRealTime'
+import { useEffect, useState } from 'react'
+
 import Sidebar from './components/Layout/Sidebar'
 import TopBar from './components/Layout/TopBar'
 import Toast from './components/UI/Toast'
-
+import { useRealTime } from './hooks/useRealTime'
 import AuditLog from './pages/AuditLog'
 import Blockchain from './pages/Blockchain'
 import Customers from './pages/Customers'
@@ -13,11 +13,14 @@ import ERPAnalytics from './pages/ERPAnalytics'
 import Finance from './pages/Finance'
 import Inventory from './pages/Inventory'
 import Invoices from './pages/Invoices'
+import Login from './pages/Login'
 import MasterData from './pages/MasterData'
 import Orders from './pages/Orders'
 import Procurement from './pages/Procurement'
 import Settings from './pages/Settings'
 import Support from './pages/Support'
+import { authService } from './services/authService'
+import { useStore } from './store/useStore'
 
 const pageMap = {
   dashboard: Dashboard,
@@ -43,8 +46,71 @@ export default function App() {
   const toasts = useStore((state) => state.toasts) || []
   const removeToast = useStore((state) => state.removeToast)
   const sidebarCollapsed = useStore((state) => state.sidebarCollapsed)
+  const isAuthenticated = useStore((state) => state.isAuthenticated)
+  const setSession = useStore((state) => state.setSession)
+  const clearSession = useStore((state) => state.clearSession)
+  const addToast = useStore((state) => state.addToast)
+
+  const [authLoading, setAuthLoading] = useState(true)
+  const [authError, setAuthError] = useState('')
+  const [authInitialized, setAuthInitialized] = useState(false)
+
+  useEffect(() => {
+    const token = authService.getToken()
+    const hasAuthFlag = authService.hasAuthFlag()
+
+    if (!token || !hasAuthFlag) {
+      authService.clearToken()
+      clearSession()
+      setAuthLoading(false)
+      setAuthInitialized(true)
+      return
+    }
+
+    authService
+      .me()
+      .then((user) => {
+        setSession({ token, user })
+        setAuthLoading(false)
+        setAuthInitialized(true)
+      })
+      .catch(() => {
+        authService.clearToken()
+        clearSession()
+        setAuthLoading(false)
+        setAuthInitialized(true)
+      })
+  }, [clearSession, setSession])
+
+  const handleLogin = async (credentials) => {
+    setAuthError('')
+    setAuthLoading(true)
+
+    try {
+      const result = await authService.login(credentials)
+      authService.setToken(result.token)
+      setSession({ token: result.token, user: result.user })
+      addToast('Login successful', 'success')
+    } catch (error) {
+      setAuthError(error.message)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
 
   const ActivePage = pageMap[currentPage] || Dashboard
+
+  if (!authInitialized || (authLoading && !isAuthenticated)) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center text-text-secondary">
+        Loading BlockERP...
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Login onSubmit={handleLogin} loading={authLoading} error={authError} />
+  }
 
   return (
     <div className="min-h-screen bg-background">

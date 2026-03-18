@@ -1,4 +1,5 @@
 import { useStore } from '../../store/useStore'
+import { authService } from '../../services/authService'
 
 export default function TopBar() {
   const searchQuery = useStore((state) => state.searchQuery)
@@ -6,6 +7,14 @@ export default function TopBar() {
   const user = useStore((state) => state.user)
   const notificationCount = useStore((state) => state.notificationCount)
   const clearNotifications = useStore((state) => state.clearNotifications)
+  const clearSession = useStore((state) => state.clearSession)
+
+  const handleLogout = () => {
+    authService.clearToken()
+    clearNotifications()
+    clearSession()
+    window.location.href = 'http://localhost:3000'
+  }
 
   return (
     <header className="fixed top-0 left-[200px] right-0 h-[60px] bg-white border-b border-border z-30 flex items-center px-6 gap-4">
@@ -53,6 +62,12 @@ export default function TopBar() {
           <div className="w-9 h-9 rounded-full bg-blue flex items-center justify-center text-white text-sm font-medium">
             {user.initials}
           </div>
+          <button
+            onClick={handleLogout}
+            className="text-xs text-text-muted hover:text-text-primary"
+          >
+            Logout
+          </button>
         </div>
       </div>
     </header>

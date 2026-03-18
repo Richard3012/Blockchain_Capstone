@@ -11,14 +11,38 @@ export const useStore = create((set, get) => ({
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
   // Auth / RBAC
+  authToken: null,
+  isAuthenticated: false,
   user: {
-    name: 'Alex Thompson',
-    role: 'admin',
-    initials: 'AT',
-    email: 'alex@company.com',
-    phone: '+1 (555) 123-4567',
-    department: 'Operations'
+    name: 'Guest User',
+    role: 'viewer',
+    initials: 'GU',
+    email: '',
+    phone: '',
+    department: ''
   },
+  setSession: ({ token, user }) => set({
+    authToken: token,
+    isAuthenticated: true,
+    user: {
+      ...user,
+      initials: user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+    },
+  }),
+  clearSession: () => set({
+    authToken: null,
+    isAuthenticated: false,
+    currentPage: 'dashboard',
+    activePage: 'dashboard',
+    user: {
+      name: 'Guest User',
+      role: 'viewer',
+      initials: 'GU',
+      email: '',
+      phone: '',
+      department: '',
+    },
+  }),
   setUser: (userData) => set((state) => ({ user: { ...state.user, ...userData } })),
   setUserRole: (role) => set((state) => ({ user: { ...state.user, role } })),
   

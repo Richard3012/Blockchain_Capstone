@@ -1,12 +1,18 @@
+import { databaseState } from '../config/database.js'
 import { BlockchainRecord } from '../models/blockchain-record.model.js'
 import { Customer } from '../models/customer.model.js'
 import { Invoice } from '../models/invoice.model.js'
 import { Product } from '../models/product.model.js'
 import { PurchaseOrder } from '../models/purchase-order.model.js'
 import { SalesOrder } from '../models/sales-order.model.js'
+import { getDevDashboardSummary } from './dev-fallback.service.js'
 
 export const dashboardService = {
   async getSummary(companyId) {
+    if (!databaseState.connected) {
+      return getDevDashboardSummary()
+    }
+
     const [orders, invoices, products, customers, purchaseOrders, blockchainRecords] = await Promise.all([
       SalesOrder.find({ companyId }).lean(),
       Invoice.find({ companyId }).lean(),

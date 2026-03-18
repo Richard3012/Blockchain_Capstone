@@ -19,6 +19,8 @@ const goodsReceiptSchema = new mongoose.Schema(
     store: { type: mongoose.Schema.Types.ObjectId, ref: 'Store', required: true },
     supplierInvoiceReference: { type: String, trim: true },
     documentCid: { type: String, trim: true },
+    hash: { type: String, trim: true },
+    verificationStatus: { type: String, enum: ['not_requested', 'pending', 'verified', 'failed'], default: 'not_requested' },
     status: { type: String, enum: ['draft', 'received', 'verified'], default: 'draft' },
     receivedAt: { type: Date },
     items: { type: [goodsReceiptItemSchema], default: [] },

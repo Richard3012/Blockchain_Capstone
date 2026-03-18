@@ -3,20 +3,23 @@ import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 
+import { databaseState } from '../config/database.js'
 import { env } from '../config/env.js'
+import { runtime } from '../config/runtime.js'
 import { ROLES } from '../constants/roles.js'
 import Company from '../models/company.model.js'
 import { Store } from '../models/store.model.js'
 import { User } from '../models/user.model.js'
+import { DEV_FALLBACK_USER, isDevFallbackLogin } from './dev-fallback.service.js'
 import { logger } from '../utils/logger.js'
 
 const signToken = (user) =>
-  jwt.sign({ sub: user._id.toString(), role: user.role }, env.jwtSecret, {
+  jwt.sign({ sub: (user._id || user.id).toString(), role: user.role, sid: runtime.bootId }, env.jwtSecret, {
     expiresIn: env.jwtExpiresIn,
   })
 
 const sanitizeUser = (user) => ({
-  id: user._id,
+  id: user._id || user.id,
   name: user.name,
   email: user.email,
   role: user.role,
@@ -29,6 +32,12 @@ const sanitizeUser = (user) => ({
 
 export const authService = {
   async register(payload) {
+    if (!databaseState.connected) {
+      const error = new Error('Registration is unavailable while MongoDB is offline')
+      error.statusCode = 503
+      throw error
+    }
+
     const existing = await User.findOne({ email: payload.email.toLowerCase() })
     if (existing) {
       const error = new Error('Email already in use')
@@ -74,6 +83,24 @@ export const authService = {
   },
 
   async login(email, password) {
+    if (!databaseState.connected) {
+      if (!isDevFallbackLogin(email, password)) {
+        const error = new Error('Invalid email or password')
+        error.statusCode = 401
+        throw error
+      }
+
+      logger.warn('auth.logged_in_fallback', {
+        email: DEV_FALLBACK_USER.email,
+        mode: databaseState.mode,
+      })
+
+      return {
+        token: signToken(DEV_FALLBACK_USER),
+        user: sanitizeUser(DEV_FALLBACK_USER),
+      }
+    }
+
     const user = await User.findOne({ email: email.toLowerCase() })
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       const error = new Error('Invalid email or password')

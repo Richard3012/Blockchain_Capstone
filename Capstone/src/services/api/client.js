@@ -1,13 +1,21 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  })
+  const token = localStorage.getItem('blockerp-token')
+  let response
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+      ...options,
+    })
+  } catch (error) {
+    throw new Error(`Cannot reach BlockERP API at ${API_BASE_URL}. Confirm the backend is running on localhost:4000.`)
+  }
 
   const payload = await response.json().catch(() => ({}))
 

@@ -9,9 +9,8 @@ import { SalesOrder } from '../models/sales-order.model.js'
 import { BlockchainRecord } from '../models/blockchain-record.model.js'
 import { auditService } from '../services/audit.service.js'
 import { blockchainService } from '../services/blockchain.service.js'
-import { ipfsService } from '../services/ipfs.service.js'
+import { verificationService } from '../services/verification.service.js'
 import { companyFilter } from '../utils/scope.js'
-import { hashRecord } from '../utils/hash-record.js'
 import { logger } from '../utils/logger.js'
 
 const invoiceSchema = z.object({
@@ -56,13 +55,14 @@ export const invoicesController = {
       dueDate: invoice.dueDate,
     }
 
-    const upload = await ipfsService.uploadJson(`invoice-${invoice.invoiceNumber}`, document)
-    if (upload.cid) {
-      invoice.documentCid = upload.cid
-      invoice.hash = hashRecord(document)
-      await invoice.save()
-      logger.info('invoice.hash_generated', { invoiceId: invoice._id.toString(), hash: invoice.hash, cid: upload.cid })
-    }
+    const blockchainRecord = await verificationService.anchorEntity({
+      companyId: req.user.companyId,
+      entityType: 'invoice',
+      entity: invoice,
+      payload: document,
+      requestedBy: req.user._id,
+      actorAddress: req.user.linkedWalletAddress || null,
+    })
 
     if (payload.order) {
       await SalesOrder.findByIdAndUpdate(payload.order, { status: 'delivered' })
@@ -77,7 +77,7 @@ export const invoicesController = {
       actor: req.user._id,
     })
 
-    res.status(201).json({ success: true, data: invoice })
+    res.status(201).json({ success: true, data: { invoice, blockchainRecord } })
   }),
   list: asyncHandler(async (req, res) => {
     const data = await Invoice.find(companyFilter(req.user)).populate('customer order store createdBy').sort({ createdAt: -1 })
