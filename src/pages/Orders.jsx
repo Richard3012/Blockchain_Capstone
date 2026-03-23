@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
+import { useLiveData } from '../hooks/useLiveData'
 import Badge from '../components/UI/Badge'
 import Button from '../components/UI/Button'
 import Modal from '../components/UI/Modal'
 import AnimatedNumber from '../components/UI/AnimatedNumber'
 
 export default function Orders() {
+  useLiveData('orders')
   const orders = useStore((state) => state.orders)
   const updateOrderStatus = useStore((state) => state.updateOrderStatus)
   const addToast = useStore((state) => state.addToast)

@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
+import { useLiveData } from '../hooks/useLiveData'
 import Badge from '../components/UI/Badge'
 import Button from '../components/UI/Button'
 import Modal from '../components/UI/Modal'
 import AnimatedNumber from '../components/UI/AnimatedNumber'
 
 export default function AuditLog() {
+  useLiveData('audit')
   const auditLog = useStore((state) => state.auditLog)
   const addToast = useStore((state) => state.addToast)
   const searchQuery = useStore((state) => state.searchQuery)

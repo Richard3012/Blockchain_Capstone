@@ -83,6 +83,15 @@ export const invoicesController = {
     const data = await Invoice.find(companyFilter(req.user)).populate('customer order store createdBy').sort({ createdAt: -1 })
     res.json({ success: true, data })
   }),
+  getById: asyncHandler(async (req, res) => {
+    const data = await Invoice.findOne({ _id: req.params.id, companyId: req.user.companyId }).populate('customer order store createdBy')
+    if (!data) {
+      const error = new Error('Invoice not found')
+      error.statusCode = 404
+      throw error
+    }
+    res.json({ success: true, data })
+  }),
   markPaid: asyncHandler(async (req, res) => {
     const payload = paymentSchema.parse(req.body)
     const invoice = await Invoice.findOne({ _id: req.params.id, companyId: req.user.companyId })

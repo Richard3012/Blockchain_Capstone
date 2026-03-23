@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
+import { useLiveData } from '../hooks/useLiveData'
 import Badge from '../components/UI/Badge'
 import Button from '../components/UI/Button'
 import Modal from '../components/UI/Modal'
@@ -15,6 +16,7 @@ function getAvatarColor(name) {
 }
 
 export default function Customers() {
+  useLiveData('customers')
   const customers = useStore((state) => state.customers)
   const addCustomer = useStore((state) => state.addCustomer)
   const addToast = useStore((state) => state.addToast)

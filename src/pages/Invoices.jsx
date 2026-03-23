@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
+import { useLiveData } from '../hooks/useLiveData'
 import Badge from '../components/UI/Badge'
 import Button from '../components/UI/Button'
 import Modal from '../components/UI/Modal'
@@ -7,6 +8,7 @@ import AnimatedNumber from '../components/UI/AnimatedNumber'
 import InvoiceGenerator from '../components/Invoice/InvoiceGenerator'
 
 export default function Invoices() {
+  useLiveData('invoices')
   const invoices = useStore((state) => state.invoices)
   const updateInvoiceStatus = useStore((state) => state.updateInvoiceStatus)
   const addToast = useStore((state) => state.addToast)

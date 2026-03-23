@@ -11,6 +11,11 @@ export const ENTITY_TYPES = [
   'sales_order',
   'invoice',
   'payment',
+  'delivery',
   'audit_log',
   'blockchain_record',
+  'account',
+  'journal_entry',
+  'gst_return',
+  'tds_entry',
 ]

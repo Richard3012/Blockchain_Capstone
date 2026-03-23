@@ -5,6 +5,7 @@ import LineChart from '../components/Charts/LineChart'
 import Badge from '../components/UI/Badge'
 import AnimatedNumber from '../components/UI/AnimatedNumber'
 import { useDashboardSummary } from '../hooks/useDashboardSummary'
+import { useLiveData } from '../hooks/useLiveData'
 import { useStore } from '../store/useStore'
 
 const kpiIcons = {
@@ -37,6 +38,7 @@ const kpiIcons = {
 
 export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date())
+  useLiveData('orders', 'invoices', 'customers', 'inventory', 'blockchain')
   const revenueHistory = useStore((state) => state.revenueHistory)
   const orders = useStore((state) => state.orders)
   const invoices = useStore((state) => state.invoices)

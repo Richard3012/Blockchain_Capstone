@@ -78,10 +78,21 @@ export const ordersController = {
     const data = await SalesOrder.find(companyFilter(req.user)).populate('customer store createdBy').sort({ createdAt: -1 })
     res.json({ success: true, data })
   }),
+  getById: asyncHandler(async (req, res) => {
+    const data = await SalesOrder.findOne({ _id: req.params.id, companyId: req.user.companyId }).populate('customer store createdBy items.product')
+    if (!data) {
+      const error = new Error('Sales order not found')
+      error.statusCode = 404
+      throw error
+    }
+    res.json({ success: true, data })
+  }),
   updateStatus: asyncHandler(async (req, res) => {
+    const statusSchema = z.object({ status: z.enum(['pending', 'processing', 'delivered', 'cancelled']) })
+    const { status } = statusSchema.parse(req.body)
     const order = await SalesOrder.findOneAndUpdate(
       { _id: req.params.id, companyId: req.user.companyId },
-      { status: req.body.status },
+      { status },
       { new: true },
     )
     await auditService.record({

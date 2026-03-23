@@ -104,6 +104,9 @@ export const inventoryController = {
       notes: payload.notes,
       createdBy: req.user._id,
     })
+    // Re-increment global currentStock since transfer is between stores, not out of company
+    result.product.currentStock += payload.quantity
+    await result.product.save()
     logger.info('inventory.transfer_processed', { productId: result.product._id.toString(), fromStoreId: payload.fromStoreId, toStoreId: payload.toStoreId, quantity: payload.quantity })
     res.status(201).json({ success: true, data: result })
   }),

@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
+import { useLiveData } from '../hooks/useLiveData'
 import Badge from '../components/UI/Badge'
 import Button from '../components/UI/Button'
 import AnimatedNumber from '../components/UI/AnimatedNumber'
 
 export default function Blockchain() {
+  useLiveData('blockchain')
   const blockchainTxs = useStore((state) => state.blockchainTxs)
   const addToast = useStore((state) => state.addToast)
   const searchQuery = useStore((state) => state.searchQuery)

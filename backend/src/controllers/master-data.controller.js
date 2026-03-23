@@ -45,6 +45,15 @@ const buildCrudController = (Model, schema, eventName) => ({
     const data = await Model.find(companyFilter(req.user)).sort({ createdAt: -1 })
     res.json({ success: true, data })
   }),
+  getById: asyncHandler(async (req, res) => {
+    const data = await Model.findOne({ _id: req.params.id, companyId: req.user.companyId })
+    if (!data) {
+      const error = new Error(`${Model.modelName} not found`)
+      error.statusCode = 404
+      throw error
+    }
+    res.json({ success: true, data })
+  }),
   create: asyncHandler(async (req, res) => {
     const payload = schema.parse(req.body)
     const data = await Model.create({ ...payload, companyId: req.user.companyId })

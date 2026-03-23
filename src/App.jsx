@@ -19,6 +19,13 @@ import Orders from './pages/Orders'
 import Procurement from './pages/Procurement'
 import Settings from './pages/Settings'
 import Support from './pages/Support'
+import GSTCompliance from './pages/GSTCompliance'
+import Accounting from './pages/Accounting'
+import TDSManagement from './pages/TDSManagement'
+import DemandForecast from './pages/DemandForecast'
+import DeliveryTracking from './pages/DeliveryTracking'
+import InvoiceScanner from './pages/InvoiceScanner'
+import AIAssistant from './pages/AIAssistant'
 import { authService } from './services/authService'
 import { useStore } from './store/useStore'
 
@@ -37,6 +44,13 @@ const pageMap = {
   support: Support,
   audit: AuditLog,
   settings: Settings,
+  gst: GSTCompliance,
+  accounting: Accounting,
+  tds: TDSManagement,
+  'demand-forecast': DemandForecast,
+  'delivery-tracking': DeliveryTracking,
+  'invoice-scanner': InvoiceScanner,
+  'ai-assistant': AIAssistant,
 }
 
 export default function App() {

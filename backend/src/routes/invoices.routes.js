@@ -8,6 +8,7 @@ router.use(requireAuth)
 
 router.post('/', invoicesController.create)
 router.get('/', invoicesController.list)
+router.get('/:id', invoicesController.getById)
 router.put('/:id/mark-paid', invoicesController.markPaid)
 router.get('/:id/verify', invoicesController.verify)
 

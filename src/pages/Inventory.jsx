@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
+import { useLiveData } from '../hooks/useLiveData'
 import Badge from '../components/UI/Badge'
 import Button from '../components/UI/Button'
 import AnimatedNumber from '../components/UI/AnimatedNumber'
 import ProductQRCode from '../components/QRCode/ProductQRCode'
 
 export default function Inventory() {
+  useLiveData('inventory')
   const inventory = useStore((state) => state.inventory)
   const restockProduct = useStore((state) => state.restockProduct)
   const appendAuditEntry = useStore((state) => state.appendAuditEntry)

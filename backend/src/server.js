@@ -6,6 +6,8 @@ import app from './app.js'
 import { ensureBootstrapData } from './bootstrap/ensure-bootstrap-data.js'
 import { connectDatabase } from './config/database.js'
 import { env } from './config/env.js'
+import { schedulerService } from './services/scheduler.service.js'
+import { telegramService } from './services/telegram.service.js'
 import { logger } from './utils/logger.js'
 
 const bootstrap = async () => {
@@ -21,6 +23,9 @@ const bootstrap = async () => {
   })
 
   app.set('io', io)
+
+  telegramService.initialize(process.env.TELEGRAM_BOT_TOKEN, process.env.TELEGRAM_CHAT_ID)
+  schedulerService.initialize()
 
   io.on('connection', (socket) => {
     logger.info('socket.connected', { socketId: socket.id })

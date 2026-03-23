@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { PRODUCTS, CUSTOMERS, ORDERS, INVOICES, TICKETS, AUDIT_LOG, BLOCKCHAIN_TXS, REVENUE_HISTORY } from '../data/seed'
 
 export const useStore = create((set, get) => ({
   // Navigation
@@ -95,24 +94,34 @@ export const useStore = create((set, get) => ({
   }),
 
   // Revenue History for charts
-  revenueHistory: [...REVENUE_HISTORY],
+  revenueHistory: [],
   
+  // Bulk setters for live data loading
+  setOrders: (data) => set({ orders: data }),
+  setInvoices: (data) => set({ invoices: data }),
+  setCustomers: (data) => set({ customers: data }),
+  setInventory: (data) => set({ inventory: data }),
+  setTickets: (data) => set({ tickets: data }),
+  setAuditLog: (data) => set({ auditLog: data }),
+  setBlockchainTxs: (data) => set({ blockchainTxs: data }),
+  setRevenueHistory: (data) => set({ revenueHistory: data }),
+
   // Orders
-  orders: [...ORDERS],
+  orders: [],
   addOrder: (order) => set((state) => ({ orders: [order, ...state.orders] })),
   updateOrderStatus: (id, status) => set((state) => ({
     orders: state.orders.map(o => o.id === id ? { ...o, status } : o)
   })),
 
   // Invoices
-  invoices: [...INVOICES],
+  invoices: [],
   addInvoice: (invoice) => set((state) => ({ invoices: [invoice, ...state.invoices] })),
   updateInvoiceStatus: (id, status) => set((state) => ({
     invoices: state.invoices.map(i => i.id === id ? { ...i, status } : i)
   })),
 
   // Customers
-  customers: [...CUSTOMERS],
+  customers: [],
   addCustomer: (customer) => set((state) => ({ 
     customers: [{ ...customer, id: state.customers.length + 1 }, ...state.customers] 
   })),
@@ -121,7 +130,7 @@ export const useStore = create((set, get) => ({
   })),
 
   // Inventory
-  inventory: [...PRODUCTS],
+  inventory: [],
   restockProduct: (id, qty) => set((state) => ({
     inventory: state.inventory.map(p => {
       if (p.id === id) {
@@ -155,7 +164,7 @@ export const useStore = create((set, get) => ({
   })),
 
   // Support Tickets
-  tickets: [...TICKETS],
+  tickets: [],
   addTicket: (ticket) => set((state) => ({ 
     tickets: [{ 
       ...ticket, 
@@ -169,13 +178,13 @@ export const useStore = create((set, get) => ({
   })),
 
   // Audit Log
-  auditLog: [...AUDIT_LOG],
+  auditLog: [],
   appendAuditEntry: (entry) => set((state) => ({
     auditLog: [entry, ...state.auditLog].slice(0, 500)
   })),
 
   // Blockchain Activity
-  blockchainTxs: [...BLOCKCHAIN_TXS],
+  blockchainTxs: [],
   appendBlockchainTx: (tx) => set((state) => ({
     blockchainTxs: [tx, ...state.blockchainTxs].slice(0, 500)
   })),

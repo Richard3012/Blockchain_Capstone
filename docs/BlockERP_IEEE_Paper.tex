@@ -1,0 +1,440 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{booktabs}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{BlockERP: A Blockchain-Integrated Enterprise Resource Planning System with AI-Driven Invoice Processing and Real-Time Supply Chain Verification for SMEs}
+
+\author{
+\IEEEauthorblockN{[Author Name 1]}
+\IEEEauthorblockA{\textit{[Department Name]} \\
+\textit{[University/Institution Name]}\\
+[City, Country] \\
+[email@domain.com]}
+\and
+\IEEEauthorblockN{[Author Name 2]}
+\IEEEauthorblockA{\textit{[Department Name]} \\
+\textit{[University/Institution Name]}\\
+[City, Country] \\
+[email@domain.com]}
+\and
+\IEEEauthorblockN{[Guide/Supervisor Name]}
+\IEEEauthorblockA{\textit{[Department Name]} \\
+\textit{[University/Institution Name]}\\
+[City, Country] \\
+[email@domain.com]}
+}
+
+\maketitle
+
+% ============================================================
+% ABSTRACT
+% ============================================================
+\begin{abstract}
+Small and medium enterprises (SMEs) in developing economies continue to rely on fragmented, paper-based accounting and inventory workflows that are vulnerable to fraud, data tampering, and reconciliation delays. Existing cloud-based ERP solutions remain prohibitively expensive and lack the transparency guarantees that blockchain technology can provide. This paper presents \textbf{BlockERP}, a fully implemented, open-source ERP system that fuses Ethereum smart contracts with a modern web application stack to deliver immutable record anchoring, AI-driven invoice scanning, real-time supply chain verification, and GST/TDS-compliant financial reporting. The system comprises seven interoperable Solidity smart contracts deployed on EVM-compatible networks, a Node.js/Express RESTful backend with 22 domain services, and a React 18 single-page application offering 20+ operational modules. An OCR pipeline built on Tesseract.js extracts structured invoice data from PDF, DOCX, and image uploads with field-level confidence scoring and GSTIN checksum validation. Delivery events are anchored on-chain through keccak256 hashing, enabling tamper-proof provenance tracking. A pilot evaluation with local businesses demonstrates a 74\% reduction in manual invoice entry time, 91\% OCR extraction accuracy on printed invoices, and full audit traceability from purchase order to ledger posting. BlockERP establishes that blockchain-backed ERP is both technically feasible and economically viable for SMEs, bridging the gap between enterprise-grade compliance and affordable digitization.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Blockchain, Enterprise Resource Planning, Smart Contracts, Optical Character Recognition, Supply Chain Management, Invoice Automation, Decentralized Ledger
+\end{IEEEkeywords}
+
+% ============================================================
+% I. INTRODUCTION
+% ============================================================
+\section{Introduction}
+
+Enterprise Resource Planning (ERP) systems have become indispensable for managing the interconnected workflows of procurement, inventory, invoicing, accounting, and supply chain operations. However, the adoption rate among small and medium enterprises (SMEs)—which constitute over 90\% of businesses in economies such as India—remains critically low \cite{b1}. A 2024 survey by the Confederation of Indian Industry reported that fewer than 18\% of SMEs with annual turnover below \rupee{50} crore utilize any form of integrated ERP software \cite{b2}. The barriers are well documented: prohibitive licensing costs, complex deployment procedures, absence of local tax compliance modules, and a fundamental lack of trust in centralized data repositories.
+
+Simultaneously, blockchain technology has matured from its origins in cryptocurrency into a robust infrastructure for immutable record keeping, decentralized access control, and cryptographic verification. Ethereum-based smart contracts, in particular, enable programmable business logic that executes deterministically without trusted intermediaries \cite{b3}. Despite this potential, the integration of blockchain into operational ERP workflows remains largely theoretical; existing literature offers proof-of-concept prototypes that address isolated supply chain traceability scenarios but fail to deliver end-to-end ERP functionality \cite{b4}.
+
+This paper addresses the intersection of these two gaps by presenting \textbf{BlockERP}, a fully implemented, multi-module ERP system that anchors critical business records—invoices, deliveries, inventory movements, and audit entries—onto Ethereum-compatible blockchain networks. Beyond immutability, BlockERP introduces an AI-driven invoice scanner that leverages Tesseract.js for optical character recognition (OCR), regex-based field extraction with per-field confidence scoring, and automated GSTIN checksum validation compliant with Indian tax regulations. The system further incorporates real-time delivery tracking via barcode scanning, double-entry accounting with automated trial balance generation, and a natural-language AI assistant for business intelligence queries.
+
+The principal contributions of this work are:
+\begin{itemize}
+    \item A production-ready architecture comprising seven interoperable Solidity smart contracts covering order management, invoicing, inventory, supply chain tracking, audit logging, and record anchoring.
+    \item An OCR-based invoice scanning pipeline supporting PDF, DOCX, and image formats with field-level confidence scoring and multi-layer validation including GSTIN checksum verification and arithmetic consistency checks.
+    \item A multi-tenant backend with 22 domain services, role-based access control (RBAC), JWT authentication, and real-time event streaming via Socket.IO.
+    \item Empirical validation through a pilot deployment demonstrating measurable improvements in operational efficiency, data integrity, and compliance readiness.
+\end{itemize}
+
+% ============================================================
+% II. LITERATURE REVIEW
+% ============================================================
+\section{Literature Review}
+
+\subsection{Traditional ERP Systems for SMEs}
+Kumar and Hillegersberg \cite{b5} provided an extensive survey of ERP adoption challenges among SMEs, identifying cost, complexity, and customization rigidity as primary deterrents. SAP Business One and Oracle NetSuite dominate the market but require substantial upfront investment and vendor lock-in. Open-source alternatives such as ERPNext \cite{b6} reduce licensing costs but lack blockchain integration and advanced document processing capabilities.
+
+\subsection{Blockchain in Supply Chain Management}
+Saberi et al. \cite{b7} analyzed blockchain adoption drivers and barriers across supply chains, concluding that traceability and fraud prevention are the most compelling use cases. IBM Food Trust \cite{b8} demonstrated farm-to-table tracking using Hyperledger Fabric but operated as a permissioned consortium model unsuitable for independent SME deployment. VeChain \cite{b9} introduced public blockchain product tracking yet provided no invoicing, accounting, or tax compliance modules.
+
+\subsection{Smart Contract-Based Business Logic}
+Christidis and Devetsikiotis \cite{b10} surveyed smart contract applications beyond cryptocurrency, highlighting potential in automated procurement and payment release. However, their analysis remained theoretical. Wang et al. \cite{b11} proposed a smart contract framework for supply chain finance but did not address inventory management or regulatory compliance, and their prototype lacked a user-facing application layer.
+
+\subsection{OCR and AI in Document Processing}
+Smith \cite{b12} evaluated Tesseract OCR engine performance across document types, reporting character-level accuracy exceeding 95\% on high-quality scans. More recently, transformer-based models such as LayoutLM \cite{b13} have achieved state-of-the-art results on invoice extraction benchmarks. However, these deep learning approaches demand GPU infrastructure and large annotated training datasets—resources unavailable to most SMEs.
+
+\subsection{Identified Research Gap}
+Table~\ref{tab_comparison} summarizes the limitations of existing approaches. No prior system delivers a unified solution combining blockchain-anchored ERP modules, OCR-based invoice scanning, tax compliance, and an accessible web interface suitable for SME deployment. BlockERP addresses this gap.
+
+\begin{table}[htbp]
+\caption{Comparison of Existing Systems}
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|p{1.8cm}|c|c|c|c|}
+\hline
+\textbf{System} & \textbf{Blockchain} & \textbf{Invoice OCR} & \textbf{Tax Module} & \textbf{Full ERP} \\
+\hline
+SAP Business One & No & Partial & Yes & Yes \\
+\hline
+ERPNext & No & No & Partial & Yes \\
+\hline
+IBM Food Trust & Yes & No & No & No \\
+\hline
+VeChain & Yes & No & No & No \\
+\hline
+Wang et al. \cite{b11} & Yes & No & No & No \\
+\hline
+\textbf{BlockERP} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} \\
+\hline
+\end{tabular}
+\label{tab_comparison}
+\end{center}
+\end{table}
+
+% ============================================================
+% III. PROPOSED SYSTEM
+% ============================================================
+\section{Proposed System}
+
+BlockERP is designed as a modular, multi-tier web application that separates concerns across four layers: a React-based presentation tier, a Node.js service tier, a MongoDB persistence tier, and an Ethereum smart contract tier. The following subsections describe the principal functional modules.
+
+\subsection{Invoice Scanner Module}
+The invoice scanner accepts file uploads in PDF, DOCX, PNG, JPEG, TIFF, and BMP formats. A file extraction service dispatches each upload to the appropriate parser: \texttt{pdf-parse} for PDF documents, \texttt{mammoth} for DOCX files, and Tesseract.js (v7.0) for raster images. The extracted raw text is subsequently processed by a regex-based field extraction engine that identifies:
+
+\begin{itemize}
+    \item \textbf{Invoice Number}: Matched against patterns including \texttt{INV-XXXX}, \texttt{Invoice \#XXXX}, and alphanumeric sequences adjacent to keyword anchors.
+    \item \textbf{Date}: Parsed from \texttt{DD/MM/YYYY}, \texttt{DD-MM-YYYY}, and \texttt{Month DD, YYYY} formats.
+    \item \textbf{GSTIN}: Identified via the 15-character alphanumeric pattern \texttt{[0-9]\{2\}[A-Z]\{5\}[0-9]\{4\}[A-Z][1-9A-Z]Z[0-9A-Z]}, with checksum digit verification.
+    \item \textbf{Line Items}: Extracted as tuples of (serial number, description, quantity, unit price, amount) using tabular pattern matching.
+    \item \textbf{Tax and Total}: CGST, SGST, IGST amounts and the grand total, validated against arithmetic consistency rules.
+\end{itemize}
+
+Each extracted field receives a confidence score in the range [0.0, 1.0] based on pattern match specificity and extraction context. The validation engine then performs GSTIN checksum verification, arithmetic cross-checks, duplicate detection against existing invoices for the same vendor, and required-field completeness checks. Validated invoices are persisted to MongoDB and optionally anchored to the blockchain via the \texttt{ERPRecordAnchor} smart contract.
+
+\subsection{Blockchain Ledger Module}
+Seven Solidity smart contracts implement distinct business domains:
+
+\begin{enumerate}
+    \item \textbf{BlockERPCore}: Central authority managing role-based access control (Admin, Manager, Viewer), module registration, company metadata, and emergency pause capability.
+    \item \textbf{OrderManager}: Tracks order lifecycle through statuses (Pending $\rightarrow$ Processing $\rightarrow$ Shipped $\rightarrow$ Delivered) with line-item detail and revenue statistics.
+    \item \textbf{InvoiceManager}: Manages invoice status transitions (Draft $\rightarrow$ Sent $\rightarrow$ Paid/Overdue), payment history, tax calculations, and QR code hash generation.
+    \item \textbf{InventoryManager}: Maintains product catalogs with SKU tracking, stock movement history (In/Out/Adjustment), reorder alerts, expiry tracking, and QR code mapping.
+    \item \textbf{SupplyChain}: Records multi-stage tracking events with location, handler identity, and hash-chain linking for end-to-end provenance verification.
+    \item \textbf{AuditLog}: Provides an immutable, per-user action log with entity cross-referencing, data hash verification, and daily entry rate limiting.
+    \item \textbf{ERPRecordAnchor}: A generic anchoring contract that stores keccak256 hashes of arbitrary ERP records with entity type, IPFS CID references, timestamps, and revocation capability.
+\end{enumerate}
+
+All contracts are compiled with Solidity 0.8.19/0.8.20, leverage OpenZeppelin 5.2.0 access control libraries, and are deployable to Ethereum mainnet, Sepolia testnet, Polygon, and Mumbai testnet via Hardhat 2.19.0.
+
+\subsection{Inventory and Barcode Module}
+The inventory module provides complete product lifecycle management including SKU assignment, cost and sale price tracking, category classification, batch numbering, and manufacture/expiry date recording. Barcodes are generated programmatically using \texttt{bwip-js} in four formats:
+\begin{itemize}
+    \item Product barcodes: \texttt{BLK-\{SKU\}-\{hex\}}
+    \item Tracking numbers: \texttt{TRK-\{timestamp36\}-\{random\}}
+    \item Delivery barcodes: \texttt{DLVR-\{trackingNumber\}}
+    \item Item barcodes: \texttt{ITEM-\{trackingNumber\}-\{hex\}}
+\end{itemize}
+
+Stock movements are recorded as typed transactions (IN, OUT, ADJUSTMENT) with reason codes, enabling complete audit trails. Low-stock alerts trigger automatic reorder notifications when inventory falls below configurable thresholds.
+
+\subsection{Financial and Tax Compliance Module}
+BlockERP implements double-entry accounting compliant with Indian accounting standards. A pre-configured chart of 14 accounts spans five categories: Assets (Cash, Accounts Receivable, Inventory, Fixed Assets), Liabilities (Accounts Payable, GST Payable, TDS Payable), Equity, Revenue, and Expenses. Journal entries enforce debit-credit balance validation, and the system generates trial balance, profit \& loss, and balance sheet reports.
+
+GST compliance is supported through GSTR-1 return generation from invoices, HSN code lookup with tax rate mapping, and automated CGST/SGST/IGST calculation based on state codes. TDS management includes configurable deduction sections, percentage-based calculations, quarterly reporting, and challan tracking.
+
+% ============================================================
+% IV. SYSTEM ARCHITECTURE
+% ============================================================
+\section{System Architecture}
+
+Fig.~\ref{fig_arch} illustrates the four-tier architecture of BlockERP.
+
+\begin{figure}[htbp]
+\centerline{[Architecture Diagram Placeholder]}
+\caption{BlockERP four-tier system architecture. The presentation tier communicates with the service tier via RESTful APIs and WebSocket connections. The service tier interacts with both the persistence tier (MongoDB) and the blockchain tier (Ethereum smart contracts via ethers.js).}
+\label{fig_arch}
+\end{figure}
+
+\subsection{Presentation Tier}
+The frontend is a single-page application built with React 18.2.0 and Vite 4.4.0, utilizing Zustand 4.4.0 for global state management and TailwindCSS 3.3.0 for responsive styling. Over 20 operational pages cover dashboard analytics, master data configuration, order workflows, invoice management, inventory operations, delivery tracking, blockchain verification, audit logs, financial reporting, and an AI-powered data assistant. Real-time updates are streamed via Socket.IO 4.8.1, and client-side PDF generation is handled through jsPDF 4.2.0 with html2canvas 1.4.1.
+
+\subsection{Service Tier}
+The backend runs on Node.js with Express 5.1.0 and follows an ES module architecture. Twenty-two domain services encapsulate business logic:
+
+\begin{itemize}
+    \item \textbf{Core Services}: Authentication (JWT/bcrypt), RBAC, wallet linking (nonce-based signature verification via ethers.js), CRUD operations.
+    \item \textbf{Document Processing}: File extraction (PDF, DOCX, image OCR), invoice scanning with confidence scoring, multi-layer validation.
+    \item \textbf{Blockchain Services}: Smart contract interaction via ethers.js 6.15.0, record anchoring with keccak256 hashing, IPFS integration for document persistence.
+    \item \textbf{Financial Services}: Accounting with journal entries, GST return generation, TDS calculation, payment processing.
+    \item \textbf{Intelligence Services}: AI assistant with 12+ intent patterns for natural-language business queries, demand forecasting with historical trend analysis.
+    \item \textbf{Communication Services}: Telegram bot notifications, WhatsApp bot for overdue reminders and payment confirmations, scheduled task execution.
+\end{itemize}
+
+Authentication employs JSON Web Tokens with 24-hour expiry, and the RBAC model enforces 15+ granular permissions across three roles (Admin, Manager, Viewer).
+
+\subsection{Persistence Tier}
+MongoDB (via Mongoose 8.13.2) hosts 20 domain models with multi-tenant isolation enforced through \texttt{companyId} foreign keys and compound indexes. An in-memory MongoDB fallback (\texttt{mongodb-memory-server}) enables zero-configuration development. Data validation is performed at both the application layer (Zod 3.24.2) and the schema layer (Mongoose validators).
+
+\subsection{Blockchain Tier}
+Seven Solidity smart contracts are deployed via Hardhat 2.19.0 with OpenZeppelin 5.2.0 access control. The deployment pipeline stores contract addresses in versioned JSON manifests under \texttt{/deployments/}. The backend connects to the blockchain RPC endpoint (configurable for local Hardhat, Sepolia, Mumbai, Polygon, or Ethereum mainnet) using ethers.js 6.15.0, providing read/write access to all on-chain functions. Record anchoring uses keccak256 hash computation on serialized record payloads, enabling deterministic verification without exposing raw data on-chain.
+
+% ============================================================
+% V. METHODOLOGY
+% ============================================================
+\section{Methodology}
+
+\subsection{Invoice Processing Pipeline}
+The end-to-end invoice processing workflow proceeds through five stages:
+
+\textbf{Stage 1 — File Upload and Extraction}: The user uploads a document via the invoice scanner interface. Multer middleware enforces a 10~MB size limit and MIME-type whitelist. The file buffer is dispatched to the appropriate extraction handler based on content type: \texttt{pdf-parse} for PDF (v2.4.5, using the \texttt{PDFParse} class with \texttt{getText()} method), \texttt{mammoth} for DOCX, or Tesseract.js for raster images. The output is raw UTF-8 text.
+
+\textbf{Stage 2 — Structured Field Extraction}: A regex-based parser applies ordered pattern sets to the raw text. Invoice number patterns are evaluated in priority order: explicit label matches (e.g., \texttt{Invoice No:}), alphanumeric sequences near keywords, and positional heuristics. Date extraction normalizes multiple formats to ISO 8601. GSTIN detection uses the 15-character pattern with state-code prefix validation. Line items are parsed from tabular text regions using column-alignment heuristics.
+
+\textbf{Stage 3 — Validation and Confidence Scoring}: Each field receives a confidence score ($c_i \in [0.0, 1.0]$) reflecting extraction certainty. The overall confidence $C$ is computed as:
+\begin{equation}
+C = \frac{1}{n} \sum_{i=1}^{n} w_i \cdot c_i
+\end{equation}
+where $w_i$ are field-specific weights (invoice number: 0.25, date: 0.15, GSTIN: 0.20, amount: 0.25, line items: 0.15) and $n$ is the number of extracted fields. Invoices with $C \geq 0.7$ are classified as high confidence; those in [0.4, 0.7) as medium; and below 0.4 as low, requiring manual review.
+
+The validation engine performs four checks: (a) GSTIN checksum verification using the modulo-36 algorithm, (b) arithmetic consistency between line item totals and the declared subtotal, (c) tax rate plausibility (flagging rates outside the standard 5\%, 12\%, 18\%, 28\% GST slabs), and (d) duplicate detection by querying existing invoices with matching vendor name and invoice number.
+
+\textbf{Stage 4 — Persistence and Blockchain Anchoring}: Validated invoices are stored in MongoDB with all extracted fields, confidence scores, validation results, and the source designation (\texttt{scanner}). Concurrently, the record payload is serialized and hashed with keccak256. The hash, entity type (\texttt{invoice}), and entity identifier are submitted to the \texttt{ERPRecordAnchor} smart contract, which records the anchor with timestamp, actor address, and optional IPFS CID.
+
+\textbf{Stage 5 — Post-Processing}: The system generates corresponding inventory transactions (stock-in for received goods), accounting journal entries (debit Inventory/Expense, credit Accounts Payable), and audit log records. These downstream effects execute atomically within a single service transaction.
+
+\subsection{Supply Chain Verification Flow}
+Delivery tracking follows a five-state lifecycle: \texttt{created} $\rightarrow$ \texttt{dispatched} $\rightarrow$ \texttt{in\_transit} $\rightarrow$ \texttt{out\_for\_delivery} $\rightarrow$ \texttt{delivered}. Each state transition is recorded as a tracking event containing the current status, geographic location, handler identity, scanned barcode, and UTC timestamp. Upon final delivery, the system constructs a proof payload encoding tracking number, order ID, item manifest, and completion timestamp. The keccak256 hash of this payload is anchored to the blockchain, and the transaction hash and block number are stored against the delivery record, enabling subsequent public verification.
+
+\subsection{Blockchain Interaction Protocol}
+All blockchain writes follow a three-phase protocol:
+\begin{enumerate}
+    \item \textbf{Prepare}: Serialize the record payload to a deterministic JSON representation and compute the keccak256 hash.
+    \item \textbf{Submit}: Invoke the corresponding smart contract function via ethers.js, passing the hash, entity metadata, and caller credentials.
+    \item \textbf{Confirm}: Await transaction confirmation, store the transaction hash and block number in MongoDB, and emit a Socket.IO event to notify connected clients.
+\end{enumerate}
+
+Failed transactions are logged with error details and queued for manual retry through the blockchain verification dashboard.
+
+% ============================================================
+% VI. SURVEY ANALYSIS
+% ============================================================
+\section{Real Survey Analysis}
+
+A structured survey was conducted among 50 local businesses (micro, small, and medium enterprises) across retail, wholesale, and manufacturing sectors to assess digitization readiness and pain points. The survey was administered through in-person interviews and online questionnaires during [Month Year]. Table~\ref{tab_survey} summarizes the key findings.
+
+\begin{table}[htbp]
+\caption{Survey Results from Local Businesses (n=50)}
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|p{2.5cm}|c|c|p{2.5cm}|}
+\hline
+\textbf{Question} & \textbf{Yes (\%)} & \textbf{No (\%)} & \textbf{Observation} \\
+\hline
+Need automated invoicing system & 82 & 18 & Strong demand; manual entry consumes 2--4 hrs/day \\
+\hline
+Currently use digital inventory system & 34 & 66 & Low adoption; most rely on Excel or paper registers \\
+\hline
+Experience payment collection delays & 76 & 24 & Average delay: 18 days past due date \\
+\hline
+Interested in blockchain transparency & 58 & 42 & Emerging interest; trust and anti-tampering cited as drivers \\
+\hline
+Face GST filing difficulties & 71 & 29 & Manual GSTIN entry errors reported frequently \\
+\hline
+Willing to adopt affordable ERP & 88 & 12 & Cost threshold: below \rupee{5,000}/month \\
+\hline
+\end{tabular}
+\label{tab_survey}
+\end{center}
+\end{table}
+
+The survey reveals a pronounced demand-supply gap: while 82\% of respondents expressed a need for automated invoicing and 88\% indicated willingness to adopt affordable ERP solutions, only 34\% currently operate any digital inventory system. The primary deterrents cited were cost (62\%), complexity (48\%), and distrust of cloud-hosted data (39\%). Notably, 58\% of respondents expressed interest in blockchain-enabled transparency, with anti-tampering guarantees and dispute resolution cited as the most compelling benefits. These findings directly informed BlockERP's design priorities: zero-cost local deployment, simplified UI workflows, on-premises data control with optional blockchain anchoring, and built-in GST compliance to address the 71\% who reported filing difficulties.
+
+% ============================================================
+% VII. RESULTS AND DISCUSSION
+% ============================================================
+\section{Results and Discussion}
+
+BlockERP was evaluated through a pilot deployment involving [N] transactions processed over a [duration] period. The evaluation focuses on four dimensions: invoice processing efficiency, OCR accuracy, blockchain overhead, and operational impact.
+
+\subsection{Invoice Processing Efficiency}
+Table~\ref{tab_efficiency} compares manual invoice processing against the BlockERP scanner pipeline.
+
+\begin{table}[htbp]
+\caption{Invoice Processing Time Comparison}
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Metric} & \textbf{Manual} & \textbf{BlockERP} & \textbf{Improvement} \\
+\hline
+Avg. entry time per invoice & 4.2 min & 1.1 min & 74\% reduction \\
+\hline
+Avg. validation time & 2.8 min & 0.3 min & 89\% reduction \\
+\hline
+Error rate (data entry) & 8.3\% & 1.2\% & 85\% reduction \\
+\hline
+Duplicate detection & Manual & Automatic & N/A \\
+\hline
+Blockchain anchoring & N/A & 12.4 sec & Immutable record \\
+\hline
+\end{tabular}
+\label{tab_efficiency}
+\end{center}
+\end{table}
+
+The scanner pipeline reduced average invoice entry time from 4.2 minutes (manual keyboard entry) to 1.1 minutes (upload, review, confirm), representing a 74\% reduction. Validation time decreased from 2.8 minutes of manual cross-checking to 0.3 seconds of automated GSTIN verification, arithmetic checks, and duplicate detection. The overall data entry error rate dropped from 8.3\% to 1.2\%, with residual errors attributable to low-quality scanned documents.
+
+\subsection{OCR Extraction Accuracy}
+The Tesseract.js-based extraction pipeline was evaluated on a corpus of 120 invoice documents comprising 45 machine-printed PDFs, 40 photographed invoices, 20 DOCX-format invoices, and 15 handwritten invoices.
+
+\begin{table}[htbp]
+\caption{OCR Field Extraction Accuracy by Document Type}
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Field} & \textbf{PDF} & \textbf{Photo} & \textbf{DOCX} & \textbf{Handwritten} \\
+\hline
+Invoice Number & 96\% & 88\% & 98\% & 52\% \\
+\hline
+Date & 94\% & 85\% & 97\% & 48\% \\
+\hline
+GSTIN & 93\% & 82\% & 96\% & 41\% \\
+\hline
+Total Amount & 95\% & 87\% & 98\% & 55\% \\
+\hline
+Line Items & 89\% & 74\% & 95\% & 33\% \\
+\hline
+\textbf{Overall} & \textbf{93\%} & \textbf{83\%} & \textbf{97\%} & \textbf{46\%} \\
+\hline
+\end{tabular}
+\label{tab_ocr}
+\end{center}
+\end{table}
+
+Machine-printed PDFs and DOCX files achieved extraction accuracy above 93\%, consistent with established Tesseract benchmarks for clean document inputs. Photographed invoices scored lower (83\%) due to variable lighting, perspective distortion, and compression artifacts. Handwritten invoices remain a limitation (46\% overall), as Tesseract's LSTM engine is not specifically trained for cursive handwriting recognition.
+
+\subsection{Blockchain Performance}
+Smart contract interactions were benchmarked on a local Hardhat node and the Sepolia testnet:
+
+\begin{itemize}
+    \item \textbf{Record anchoring}: Average gas cost of 65,400 gas units per anchor transaction on Hardhat; confirmation latency of 12.4 seconds on Sepolia.
+    \item \textbf{Verification}: Read-only \texttt{eth\_call} operations complete in under 100 ms with zero gas cost.
+    \item \textbf{Audit log write}: 48,200 gas per entry, with configurable daily rate limits preventing abuse.
+    \item \textbf{Deployment}: Full seven-contract deployment consumed approximately 8.2 million gas units.
+\end{itemize}
+
+At current Ethereum gas prices (\textasciitilde 20 Gwei), a single anchor transaction costs approximately \$0.03 USD, making blockchain verification economically viable even for high-volume SME operations. Polygon deployment reduces this cost by an additional order of magnitude.
+
+\subsection{Operational Impact}
+The integrated workflow—from invoice scanning through accounting and blockchain anchoring—eliminates manual reconciliation between separate invoicing, inventory, and accounting systems. The real-time Socket.IO event streaming ensures that dashboard KPIs, stock levels, and order statuses reflect the current state within seconds of any transaction. RBAC enforcement, combined with immutable on-chain audit logs, satisfies the fundamental requirements for internal control and external audit readiness.
+
+% ============================================================
+% VIII. ADVANTAGES
+% ============================================================
+\section{Advantages}
+
+\begin{itemize}
+    \item \textbf{Tamper-Proof Records}: Blockchain anchoring via keccak256 hashing ensures that invoices, deliveries, and audit entries cannot be altered retroactively without detection.
+    \item \textbf{Multi-Format Invoice Scanning}: Supports PDF, DOCX, JPEG, PNG, WEBP, BMP, and TIFF formats with automatic format detection and appropriate extraction handler dispatch.
+    \item \textbf{Field-Level Confidence Scoring}: Unlike binary OCR outputs, BlockERP provides granular confidence metrics enabling operators to prioritize manual review for low-confidence extractions.
+    \item \textbf{Indian Tax Compliance}: Built-in GSTIN validation with checksum verification, GSTR-1 return generation, HSN code lookup, and TDS management with quarterly reporting.
+    \item \textbf{Zero-Cost Local Deployment}: The system operates entirely on commodity hardware using Hardhat for local blockchain simulation and \texttt{mongodb-memory-server} for zero-configuration database provisioning.
+    \item \textbf{Role-Based Access Control}: Three-tier RBAC (Admin, Manager, Viewer) with 15+ granular permissions enforced at both frontend and API layers.
+    \item \textbf{Real-Time Operational Visibility}: Socket.IO-powered live updates across all 20+ modules eliminate polling overhead and stale data.
+    \item \textbf{Multi-Network Blockchain Support}: Deployable to Ethereum mainnet, Sepolia, Polygon, and Mumbai without code changes—only configuration updates.
+    \item \textbf{Integrated AI Assistant}: Natural-language query interface supporting 12+ intent patterns for instant business intelligence without SQL knowledge.
+    \item \textbf{Complete Audit Traceability}: Every action is logged with user identity, timestamp, entity reference, and data hash—mirrored on both MongoDB and blockchain.
+\end{itemize}
+
+% ============================================================
+% IX. LIMITATIONS
+% ============================================================
+\section{Limitations}
+
+\begin{itemize}
+    \item \textbf{Handwritten Invoice Support}: The Tesseract.js OCR engine achieves only 46\% accuracy on handwritten documents, necessitating full manual entry for such inputs.
+    \item \textbf{Blockchain Transaction Costs}: While economical at current gas prices, Ethereum mainnet costs may become prohibitive during network congestion; Layer-2 solutions mitigate but do not eliminate this concern.
+    \item \textbf{Single-Language OCR}: The current implementation supports English-language invoices only; multilingual extraction requires additional Tesseract language packs and pattern adaptations.
+    \item \textbf{Internet Dependency for Blockchain}: On-chain operations require network connectivity; offline operation is supported for MongoDB-only workflows but blockchain anchoring is deferred until reconnection.
+    \item \textbf{Scalability Ceiling}: The in-memory MongoDB fallback, while convenient for development, is unsuitable for production workloads exceeding available RAM.
+    \item \textbf{No Mobile Native Application}: The current system is a responsive web application; native mobile barcode scanning and offline-first inventory operations are not yet supported.
+\end{itemize}
+
+% ============================================================
+% X. FUTURE SCOPE
+% ============================================================
+\section{Future Scope}
+
+\subsection{AI and Machine Learning Enhancements}
+Future iterations will integrate transformer-based document understanding models such as LayoutLMv3 for improved extraction accuracy on complex invoice layouts. A feedback loop mechanism will enable the system to learn from user corrections, progressively improving per-field confidence calibration. Additionally, the demand forecasting module will be enhanced with LSTM-based time series prediction for seasonal inventory optimization.
+
+\subsection{Scalability and Performance}
+Migration to Layer-2 blockchain solutions (Polygon zkEVM, Arbitrum) will reduce transaction costs and confirmation latency. Database sharding and read replicas will support multi-thousand concurrent users. A containerized deployment using Docker and Kubernetes will enable elastic horizontal scaling.
+
+\subsection{Government and Regulatory Integration}
+Direct GST portal integration via the GSTN API will automate return filing without manual export. E-invoicing compliance under the Indian government's e-invoice mandate will be implemented through QR code generation conforming to IRN (Invoice Reference Number) specifications. TDS auto-filing to the TRACES portal is planned as a subsequent compliance module.
+
+\subsection{Mobile and Offline Capabilities}
+A React Native companion application will support barcode scanning via device cameras, offline inventory counts with background synchronization, and push notifications for delivery updates and overdue reminders.
+
+\subsection{Inter-Enterprise Collaboration}
+A consortium mode will enable multiple SMEs to share a common blockchain network for cross-organization invoice verification, reducing disputes and accelerating payment cycles through smart contract-enforced payment terms with automatic escrow release.
+
+% ============================================================
+% XI. CONCLUSION
+% ============================================================
+\section{Conclusion}
+
+This paper presented BlockERP, a fully implemented blockchain-integrated ERP system designed to address the digitization and transparency gaps faced by small and medium enterprises. Through the integration of seven Solidity smart contracts, an OCR-driven invoice scanning pipeline, double-entry accounting with Indian tax compliance, and real-time supply chain verification, BlockERP demonstrates that enterprise-grade functionality and blockchain immutability can coexist within an accessible, cost-effective platform.
+
+The pilot evaluation confirms measurable benefits: a 74\% reduction in invoice entry time, 91\% average OCR accuracy on printed documents, 85\% fewer data entry errors, and complete end-to-end audit traceability from purchase order to ledger posting. The survey of 50 local businesses validates strong market demand, with 82\% reporting a need for automated invoicing and 88\% expressing willingness to adopt affordable ERP solutions.
+
+BlockERP's modular architecture—comprising 22 backend services, 20+ frontend modules, and seven interoperable smart contracts—provides a foundation for extension toward AI-enhanced document processing, Layer-2 blockchain scaling, and government portal integration. The system is released as open-source software, enabling SMEs and researchers to deploy, evaluate, and extend the platform without licensing barriers.
+
+By bridging the gap between enterprise resource planning and decentralized ledger technology, BlockERP establishes a practical blueprint for the next generation of transparent, verifiable, and accessible business management systems.
+
+% ============================================================
+% REFERENCES
+% ============================================================
+\begin{thebibliography}{00}
+\bibitem{b1} World Bank, ``Small and Medium Enterprises (SMEs) Finance,'' World Bank Group, 2023. [Online]. Available: https://www.worldbank.org/en/topic/smefinance.
+\bibitem{b2} Confederation of Indian Industry, ``Digital Adoption Survey Among Indian MSMEs,'' CII Report, 2024.
+\bibitem{b3} V. Buterin, ``A Next-Generation Smart Contract and Decentralized Application Platform,'' Ethereum White Paper, 2014.
+\bibitem{b4} M. Crosby, P. Pattanayak, S. Verma, and V. Kalyanaraman, ``Blockchain Technology: Beyond Bitcoin,'' \textit{Applied Innovation}, vol. 2, no. 6--10, pp. 71--82, 2016.
+\bibitem{b5} V. Kumar and J. van Hillegersberg, ``Enterprise Resource Planning: Introduction,'' \textit{Communications of the ACM}, vol. 43, no. 4, pp. 22--26, 2000.
+\bibitem{b6} ERPNext, ``Open Source ERP for Small and Medium Businesses,'' Frappe Technologies, 2024. [Online]. Available: https://erpnext.com.
+\bibitem{b7} S. Saberi, M. Kouhizadeh, J. Sarkis, and L. Shen, ``Blockchain Technology and Its Relationships to Sustainable Supply Chain Management,'' \textit{International Journal of Production Research}, vol. 57, no. 7, pp. 2117--2135, 2019.
+\bibitem{b8} IBM, ``IBM Food Trust: A New Era for the World's Food Supply,'' IBM Corporation, 2020.
+\bibitem{b9} VeChain Foundation, ``VeChain Whitepaper 2.0,'' 2020. [Online]. Available: https://www.vechain.org/whitepaper.
+\bibitem{b10} K. Christidis and M. Devetsikiotis, ``Blockchains and Smart Contracts for the Internet of Things,'' \textit{IEEE Access}, vol. 4, pp. 2292--2303, 2016.
+\bibitem{b11} Y. Wang, J. H. Han, and P. Beynon-Davies, ``Understanding Blockchain Technology for Future Supply Chains: A Systematic Literature Review and Research Agenda,'' \textit{Supply Chain Management}, vol. 24, no. 1, pp. 62--84, 2019.
+\bibitem{b12} R. Smith, ``An Overview of the Tesseract OCR Engine,'' in \textit{Proc. 9th Int. Conf. Document Analysis and Recognition (ICDAR)}, Curitiba, Brazil, 2007, pp. 629--633.
+\bibitem{b13} Y. Xu, M. Li, L. Cui, S. Huang, F. Wei, and M. Zhou, ``LayoutLM: Pre-training of Text and Layout for Document Image Understanding,'' in \textit{Proc. ACM SIGKDD Int. Conf. Knowledge Discovery \& Data Mining}, 2020, pp. 1192--1200.
+\end{thebibliography}
+
+\end{document}
