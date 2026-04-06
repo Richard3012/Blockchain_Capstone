@@ -92,9 +92,17 @@ export const fileExtractorService = {
   async extractFromImage(buffer) {
     logger.info('file_extractor.ocr_start')
     const { data } = await Tesseract.recognize(buffer, 'eng', {
-      logger: () => {},
+      logger: (m) => {
+        if (m.status) logger.debug('file_extractor.ocr_progress', { status: m.status, progress: m.progress })
+      },
+      tessedit_pageseg_mode: '6',           // Assume uniform block of text
+      preserve_interword_spaces: '1',       // Keep spacing for table-like layouts
+      tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,:-/#@%₹ ()\n',
     })
     logger.info('file_extractor.ocr_done', { chars: data.text.length, confidence: data.confidence })
+    if (data.confidence < 30) {
+      logger.warn('file_extractor.ocr_low_confidence', { confidence: data.confidence })
+    }
     return data.text
   },
 }

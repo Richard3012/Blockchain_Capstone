@@ -17,6 +17,7 @@ const upload = multer({
       'image/bmp',
       'image/tiff',
       'text/plain',
+      'text/csv',
     ]
     if (allowed.includes(file.mimetype)) return cb(null, true)
     cb(new Error(`Unsupported file type: ${file.mimetype}`))

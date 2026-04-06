@@ -22,13 +22,30 @@ function parseNum(s) {
 
 function normalizeDate(raw) {
   if (!raw) return null
+
   // Try DD/MM/YYYY, DD-MM-YYYY
   const m = raw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/)
-  if (!m) return null
-  let [, d, mo, y] = m
-  if (y.length === 2) y = '20' + y
-  const date = new Date(`${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`)
-  return isNaN(date.getTime()) ? null : date
+  if (m) {
+    let [, d, mo, y] = m
+    if (y.length === 2) y = '20' + y
+    const date = new Date(`${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`)
+    if (!isNaN(date.getTime())) return date
+  }
+
+  // Try "DD Mon YYYY" / "DD Month YYYY" (e.g. "15 Mar 2026", "15 March, 2026")
+  const monthNames = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' }
+  const m2 = raw.match(/(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[,.]?\s*(\d{2,4})/i)
+  if (m2) {
+    let [, d, mon, y] = m2
+    if (y.length === 2) y = '20' + y
+    const mo = monthNames[mon.toLowerCase().slice(0, 3)]
+    if (mo) {
+      const date = new Date(`${y}-${mo}-${d.padStart(2, '0')}`)
+      if (!isNaN(date.getTime())) return date
+    }
+  }
+
+  return null
 }
 
 function fieldConfidence(value, pattern) {
@@ -68,21 +85,26 @@ export const invoiceScannerService = {
     const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean)
     const text = rawText
 
-    // GSTIN
-    const gstinMatch = text.match(/\b(\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d])\b/i)
+    // GSTIN — match both strict and OCR-degraded patterns
+    const gstinMatch = text.match(/\b(\d{2}[A-Za-z]{5}\d{4}[A-Za-z][\dA-Za-z][Zz][A-Za-z\d])\b/)
     const gstin = gstinMatch ? gstinMatch[1].toUpperCase() : null
 
-    // Vendor name — first meaningful line
+    // Vendor name — first meaningful line (skip headers, numbers, dates, common labels)
     const vendorLine = lines.find(
-      (l) => l.length > 3 && !/^\d{2}[\/-]/.test(l) && !/gstin/i.test(l) && !/invoice/i.test(l) && !/tax/i.test(l),
+      (l) => l.length > 3 &&
+        !/^\d{2}[\/-]/.test(l) &&
+        !/gstin|invoice|tax|bill|date|total|amount|qty|quantity|description|s\.?no|sr|sl/i.test(l) &&
+        !/^\d+\.?\s*$/.test(l),
     )
     const vendorName = vendorLine || null
 
-    // Invoice number — multiple patterns
+    // Invoice number — multiple patterns (expanded for OCR variations)
     const invPatterns = [
-      /invoice\s*(?:no|number|#)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+      /invoice\s*(?:no|number|#|num)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
       /inv[.\-]?\s*#?\s*:?\s*([A-Z0-9\-\/]+)/i,
-      /bill\s*(?:no|number|#)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+      /bill\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+      /receipt\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+      /voucher\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     ]
     let invoiceNumber = null
     for (const p of invPatterns) {
@@ -90,9 +112,10 @@ export const invoiceScannerService = {
       if (m) { invoiceNumber = m[1]; break }
     }
 
-    // Date — multiple formats
+    // Date — multiple formats (expanded for OCR variations)
     const datePatterns = [
-      /(?:date|dated|dt)\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+      /(?:date|dated|dt|invoice\s*date)\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+      /(?:date|dated|dt|invoice\s*date)\s*[:\-]?\s*(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*[,.]?\s*\d{2,4})/i,
       /(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/,
     ]
     let invoiceDate = null

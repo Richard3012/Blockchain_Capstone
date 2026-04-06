@@ -3,7 +3,8 @@ import { useStore } from '../store/useStore'
 import { invalidateLiveData } from '../hooks/useLiveData'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
-const FILE_ACCEPT = '.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.txt'
+const FILE_ACCEPT = '.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.txt,.csv'
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
 
 function getToken() {
   return localStorage.getItem('blockerp_token') || localStorage.getItem('blockerp-token') || ''
@@ -21,6 +22,8 @@ export default function InvoiceScanner() {
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [dragging, setDragging] = useState(false)
 
   // Step 1
   const [inputMode, setInputMode] = useState('file') // 'file' | 'text'
@@ -42,8 +45,44 @@ export default function InvoiceScanner() {
 
   /* ── API call helper ─────────────────────────── */
   const apiCall = useCallback(async (method, endpoint, body, isFormData = false) => {
-    const headers = {}
     const token = getToken()
+
+    // Use XMLHttpRequest for FormData to track upload progress
+    if (isFormData && body instanceof FormData) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open(method, `${API}${endpoint}`)
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            setUploadProgress(Math.round((e.loaded / e.total) * 100))
+          }
+        })
+        xhr.upload.addEventListener('loadend', () => setUploadProgress(100))
+
+        xhr.onload = () => {
+          try {
+            const json = JSON.parse(xhr.responseText)
+            if (xhr.status >= 400 && xhr.status !== 422) {
+              reject(new Error(json.message || json.error || `Server error ${xhr.status}`))
+            } else {
+              resolve(json.data ?? json)
+            }
+          } catch {
+            reject(new Error(`Server error ${xhr.status}`))
+          }
+        }
+        xhr.onerror = () => reject(new Error('Network error — check your connection'))
+        xhr.ontimeout = () => reject(new Error('Upload timed out — try a smaller file'))
+        xhr.timeout = 120000 // 2 minutes
+
+        xhr.send(body)
+      })
+    }
+
+    // Standard fetch for JSON requests
+    const headers = {}
     if (token) headers['Authorization'] = `Bearer ${token}`
     if (!isFormData) headers['Content-Type'] = 'application/json'
 
@@ -62,8 +101,14 @@ export default function InvoiceScanner() {
 
   /* ── File selection ─────────────────────────── */
   const pickFile = (f) => {
+    if (f.size > MAX_FILE_SIZE) {
+      setError(`File is too large (${(f.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is 10 MB.`)
+      addToast?.('File exceeds 10 MB limit', 'error')
+      return
+    }
     setFile(f)
     setError(null)
+    setUploadProgress(0)
     if (f.type.startsWith('image/')) {
       const r = new FileReader()
       r.onload = (ev) => setPreview(ev.target.result)
@@ -77,6 +122,7 @@ export default function InvoiceScanner() {
   const handleExtract = async () => {
     setError(null)
     setLoading(true)
+    setUploadProgress(0)
     try {
       let data
       if (inputMode === 'file') {
@@ -124,6 +170,7 @@ export default function InvoiceScanner() {
   const handleProcess = async () => {
     setError(null)
     setLoading(true)
+    setUploadProgress(0)
     try {
       let data
       const overrides = { ...fields, lineItems }
@@ -181,7 +228,8 @@ export default function InvoiceScanner() {
     setStep(1); setFile(null); setPreview(null); setRawText('')
     setFields({}); setLineItems([]); setExtractedText('')
     setValidation(null); setFieldConf({}); setResult(null)
-    setVerifyResult(null); setError(null)
+    setVerifyResult(null); setError(null); setUploadProgress(0)
+    setDragging(false)
   }
 
   /* ── Helpers ────────────────────────────────── */
@@ -277,9 +325,12 @@ export default function InvoiceScanner() {
               {/* Drop Zone */}
               <div
                 onClick={() => fileRef.current?.click()}
-                onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f) pickFile(f) }}
-                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer?.files?.[0]; if (f) pickFile(f) }}
+                onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+                onDragEnter={(e) => { e.preventDefault(); setDragging(true) }}
+                onDragLeave={(e) => { e.preventDefault(); setDragging(false) }}
                 className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition mb-5 ${
+                  dragging ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' :
                   file ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/30'
                 }`}
               >
@@ -289,6 +340,11 @@ export default function InvoiceScanner() {
                     <p className="text-green-700 font-semibold text-base">✅ {file.name}</p>
                     <p className="text-gray-500 text-sm">{(file.size / 1024).toFixed(1)} KB — Click to change file</p>
                   </div>
+                ) : dragging ? (
+                  <div className="space-y-2 py-4">
+                    <div className="text-5xl">📥</div>
+                    <p className="text-blue-600 font-semibold text-base">Drop your file here!</p>
+                  </div>
                 ) : (
                   <div className="space-y-2 py-4">
                     <div className="text-5xl">📁</div>
@@ -297,6 +353,27 @@ export default function InvoiceScanner() {
                   </div>
                 )}
               </div>
+
+              {/* Upload progress bar */}
+              {loading && uploadProgress > 0 && uploadProgress < 100 && (
+                <div className="mb-5">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Uploading file...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                </div>
+              )}
+              {loading && uploadProgress >= 100 && (
+                <div className="mb-5">
+                  <div className="flex items-center gap-2 text-xs text-blue-600">
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    <span>Processing &amp; extracting text (this may take a moment for images)...</span>
+                  </div>
+                </div>
+              )}
               <input ref={fileRef} type="file" accept={FILE_ACCEPT} capture="environment" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) pickFile(f) }}
               />
