@@ -1,0 +1,153 @@
+# ──────────────────────────────────────────────────────────────
+# BlockERP — Continuous Deployment
+# Deploys to Linux VPS after CI passes on main.
+# Jobs:
+#   1. build-frontend  – produces dist/ artifact
+#   2. deploy          – SSH into VPS, pull code, restart services
+# ──────────────────────────────────────────────────────────────
+
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+# Only one deploy at a time
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "20"
+  APP_DIR: /opt/blockerp
+  PM2_BACKEND: blockerp-backend
+  PM2_HARDHAT: blockerp-node
+
+jobs:
+  # ── Gate: only deploy if CI passed ────────────────────────
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Build frontend locally and upload
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      # ── Step 1: Prepare server (pull code, install deps, backup) ──
+      - name: Prepare server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            APP_DIR=${{ env.APP_DIR }}
+            BACKUP_DIR="${APP_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
+
+            echo "── Creating backup for rollback ──"
+            cp -r "$APP_DIR" "$BACKUP_DIR"
+            # Persist backup path for the restart step
+            echo "$BACKUP_DIR" > /tmp/blockerp_backup_path
+
+            echo "── Pulling latest code ──"
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "── Installing dependencies ──"
+            npm ci --production
+
+            echo "── Compiling smart contracts ──"
+            npx hardhat compile --config hardhat.config.cjs
+
+      # ── Step 2: Upload built frontend before restarting ──
+      - name: Upload frontend build
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: dist/
+          target: ${{ env.APP_DIR }}/dist
+          strip_components: 1
+
+      # ── Step 3: Restart services & health check ──
+      - name: Restart services and verify
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            APP_DIR=${{ env.APP_DIR }}
+            BACKUP_DIR=$(cat /tmp/blockerp_backup_path)
+            rm -f /tmp/blockerp_backup_path
+
+            cd "$APP_DIR"
+
+            echo "── Restarting backend (zero-downtime) ──"
+            if pm2 describe ${{ env.PM2_BACKEND }} > /dev/null 2>&1; then
+              pm2 reload ${{ env.PM2_BACKEND }} --update-env
+            else
+              pm2 start backend/src/server.js \
+                --name ${{ env.PM2_BACKEND }} \
+                --node-args="--experimental-specifier-resolution=node" \
+                --max-memory-restart 512M \
+                --exp-backoff-restart-delay=100
+            fi
+
+            echo "── Restarting Hardhat node (if running) ──"
+            if pm2 describe ${{ env.PM2_HARDHAT }} > /dev/null 2>&1; then
+              pm2 reload ${{ env.PM2_HARDHAT }} --update-env
+            fi
+
+            pm2 save
+
+            echo "── Health check ──"
+            sleep 5
+            if curl -sf http://localhost:${PORT:-3001}/api/health > /dev/null 2>&1; then
+              echo "✓ Backend is healthy"
+              rm -rf "$BACKUP_DIR"
+            else
+              echo "✗ Health check failed — rolling back"
+              rm -rf "$APP_DIR"
+              mv "$BACKUP_DIR" "$APP_DIR"
+              cd "$APP_DIR"
+              pm2 reload ${{ env.PM2_BACKEND }} --update-env
+              exit 1
+            fi
+
+      - name: Deployment summary
+        run: |
+          echo "### Deployment Complete :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server:** ${{ secrets.SERVER_IP }}" >> $GITHUB_STEP_SUMMARY

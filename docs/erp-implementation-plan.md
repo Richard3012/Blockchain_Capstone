@@ -57,7 +57,23 @@ Capstone/
 - Notifications center
 - Verification detail drawer for invoices and receipts
 
-## Required secrets still pending
+## Tesseract OCR Integration
+
+The Invoice Scanner module uses **Tesseract.js v7** for optical character recognition on scanned invoices and receipts. See [tesseract-integration.md](tesseract-integration.md) for full setup, configuration, API usage, and troubleshooting.
+
+## CI/CD Pipeline
+
+GitHub Actions workflows are in `.github/workflows/`:
+
+- **`ci.yml`** — Runs on every push/PR to `main`. Three parallel jobs:
+  - `smart-contracts` — Solidity compilation + Hardhat tests
+  - `backend` — Tesseract OCR integration tests + Express smoke test
+  - `frontend` — Vite production build
+- **`deploy.yml`** — Triggers after CI passes. Deploys to VPS via SSH with PM2 zero-downtime reload and automatic rollback on health-check failure.
+
+## Required secrets
+
+### Application (`.env`)
 
 - `MONGODB_URI`
 - `JWT_SECRET`
@@ -66,3 +82,9 @@ Capstone/
 - `BLOCKCHAIN_PRIVATE_KEY`
 - `RECORD_ANCHOR_ADDRESS`
 - Network RPC URL for the target chain when leaving local Hardhat
+
+### GitHub Actions (Settings → Secrets)
+
+- `SERVER_IP` — VPS IP address
+- `SERVER_USER` — SSH username
+- `SERVER_SSH_KEY` — Private SSH key for deployment

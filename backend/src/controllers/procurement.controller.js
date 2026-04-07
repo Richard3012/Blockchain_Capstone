@@ -68,7 +68,7 @@ export const procurementController = {
       orderNumber: purchaseOrder.orderNumber,
       supplier: purchaseOrder.supplier.toString(),
       store: purchaseOrder.store.toString(),
-      items: purchaseOrder.items,
+      items: purchaseOrder.items.map(i => i.toJSON()),
       subtotal: purchaseOrder.subtotal,
       taxAmount: purchaseOrder.taxAmount,
       totalAmount: purchaseOrder.totalAmount,
@@ -139,7 +139,7 @@ export const procurementController = {
       purchaseOrder: goodsReceipt.purchaseOrder.toString(),
       store: goodsReceipt.store.toString(),
       supplierInvoiceReference: goodsReceipt.supplierInvoiceReference,
-      items: goodsReceipt.items,
+      items: goodsReceipt.items.map(i => i.toJSON()),
       receivedAt: goodsReceipt.receivedAt,
     }
 

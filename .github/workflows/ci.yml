@@ -1,0 +1,147 @@
+# ──────────────────────────────────────────────────────────────
+# BlockERP — Continuous Integration
+# Runs on every push/PR to main. Three parallel jobs:
+#   1. smart-contracts  – compile Solidity + run Hardhat tests
+#   2. backend          – test Express API + Tesseract.js OCR pipeline
+#   3. frontend         – build React/Vite app
+# ──────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same branch/PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ── 1. Smart Contracts ────────────────────────────────────
+  smart-contracts:
+    name: Solidity Compile & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Cache node_modules keyed on lockfile hash
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-${{ runner.os }}-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Compile all Solidity contracts (BlockERPCore, OrderManager, etc.)
+      - name: Compile contracts
+        run: npm run compile
+
+      # Run Hardhat + Chai test suite (test/BlockERP.test.cjs)
+      - name: Run smart contract tests
+        run: npm test
+
+  # ── 2. Backend + OCR Service ──────────────────────────────
+  backend:
+    name: Backend & Tesseract OCR Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-${{ runner.os }}-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Tesseract.js uses WASM — no system-level Tesseract required.
+      # Verifies: engine loading, invoice field parsing, service config.
+      - name: Run Tesseract OCR integration tests
+        run: node test/tesseract-integration.test.cjs
+
+      # Run backend API integration tests (mongodb-memory-server + supertest)
+      - name: Run backend integration tests
+        run: npm run test:integration
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-test-secret
+          MONGODB_URI: ""
+
+      # Smoke-test: boot Express server, verify it stays alive for 5s
+      - name: Backend smoke test
+        run: |
+          timeout 10 node backend/src/server.js &
+          SERVER_PID=$!
+          sleep 5
+          if kill -0 $SERVER_PID 2>/dev/null; then
+            echo "✓ Backend server started successfully"
+            kill $SERVER_PID
+          else
+            echo "✗ Backend server failed to start"
+            exit 1
+          fi
+        env:
+          NODE_ENV: test
+          PORT: 4000
+          JWT_SECRET: ci-test-secret
+          # mongodb-memory-server provides an ephemeral MongoDB instance
+          MONGODB_URI: ""
+
+  # ── 3. Frontend ───────────────────────────────────────────
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-${{ runner.os }}-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Build React + Vite + TailwindCSS frontend
+      - name: Build frontend
+        run: npm run build
+
+      # Upload dist/ for the deploy workflow
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          retention-days: 7
