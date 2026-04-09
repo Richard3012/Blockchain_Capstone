@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { z } from 'zod'
 
 import { asyncHandler } from '../middlewares/async-handler.js'
+import { ROLES } from '../constants/roles.js'
 import { Product } from '../models/product.model.js'
 import { SalesOrder } from '../models/sales-order.model.js'
 import { InventoryTransaction } from '../models/inventory-transaction.model.js'
@@ -25,6 +26,16 @@ const orderSchema = z.object({
 
 const statusSchema = z.object({
   status: z.enum(['pending', 'processing', 'shipped', 'in_transit', 'delivered', 'cancelled']),
+})
+
+const updateOrderSchema = z.object({
+  dueDate: z.string().optional().nullable(),
+  taxAmount: z.number().nonnegative().optional(),
+  items: z.array(z.object({
+    product: z.string(),
+    quantity: z.number().positive(),
+    unitPrice: z.number().nonnegative(),
+  })).min(1).optional(),
 })
 
 const mapWithVerification = async (companyId, order) => {
@@ -159,6 +170,92 @@ export const ordersController = {
       orderId: req.params.id,
       status,
       actor: req.user.email,
+    })
+
+    res.json({ success: true, data: await mapWithVerification(req.user.companyId, order) })
+  }),
+
+  update: asyncHandler(async (req, res) => {
+    if (![ROLES.ADMIN, ROLES.INVENTORY_MANAGER].includes(req.user.role)) {
+      const error = new Error('Only Admin or Inventory Manager can modify orders')
+      error.statusCode = 403
+      throw error
+    }
+
+    const payload = updateOrderSchema.parse(req.body)
+    const order = await SalesOrder.findOne({ _id: req.params.id, companyId: req.user.companyId })
+    if (!order) {
+      const error = new Error('Sales order not found')
+      error.statusCode = 404
+      throw error
+    }
+
+    const before = {
+      dueDate: order.dueDate ? new Date(order.dueDate).toISOString() : null,
+      taxAmount: order.taxAmount,
+      items: order.items.map((item) => ({
+        product: item.product.toString(),
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+      totalAmount: order.totalAmount,
+    }
+
+    if (payload.items) {
+      order.items = payload.items
+      order.subtotal = payload.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0)
+    }
+
+    if (payload.taxAmount !== undefined) {
+      order.taxAmount = payload.taxAmount
+    }
+
+    if (payload.dueDate !== undefined) {
+      order.dueDate = payload.dueDate || null
+    }
+
+    order.totalAmount = (order.subtotal || 0) + (order.taxAmount || 0)
+    await order.save()
+
+    const after = {
+      dueDate: order.dueDate ? new Date(order.dueDate).toISOString() : null,
+      taxAmount: order.taxAmount,
+      items: order.items.map((item) => ({
+        product: item.product.toString(),
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+      totalAmount: order.totalAmount,
+    }
+
+    const changedFields = Object.keys(after).filter((key) => JSON.stringify(after[key]) !== JSON.stringify(before[key]))
+
+    await auditService.record({
+      companyId: req.user.companyId,
+      action: 'sales.order_modified',
+      entityType: 'sales_order',
+      entityId: order._id,
+      summary: `${req.user.name} (${req.user.role}) modified ${order.orderNumber}: ${changedFields.join(', ')}`,
+      actor: req.user._id,
+      metadata: {
+        changedFields,
+        before,
+        after,
+        actorEmail: req.user.email,
+        actorRole: req.user.role,
+        wallet: req.user.linkedWalletAddress || null,
+      },
+    })
+
+    logger.warn('sales.order_modified', {
+      orderId: order._id.toString(),
+      orderNumber: order.orderNumber,
+      actorId: req.user._id.toString(),
+      actorName: req.user.name,
+      actorRole: req.user.role,
+      actorEmail: req.user.email,
+      actorWallet: req.user.linkedWalletAddress || null,
+      changedFields,
     })
 
     res.json({ success: true, data: await mapWithVerification(req.user.companyId, order) })

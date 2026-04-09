@@ -147,6 +147,7 @@ export function useLiveData(...collections) {
               hash: a.hash || a.txHash || '',
               timestamp: a.createdAt,
               details: a.summary || a.details || '',
+              metadata: a.metadata || {},
             })))
           })
           break

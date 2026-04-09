@@ -254,6 +254,24 @@ export default function AuditLog() {
               <label className="text-sm text-text-muted">Details</label>
               <p className="font-medium text-text-primary">{selectedEntry.details}</p>
             </div>
+            {selectedEntry.metadata?.changedFields?.length > 0 && (
+              <div>
+                <label className="text-sm text-text-muted">Changed Fields</label>
+                <div className="mt-2 space-y-2">
+                  {selectedEntry.metadata.changedFields.map((field) => (
+                    <div key={field} className="rounded-lg border border-border p-3 text-sm">
+                      <p className="font-medium text-text-primary">{field}</p>
+                      <p className="text-text-secondary mt-1">
+                        Before: {JSON.stringify(selectedEntry.metadata.before?.[field])}
+                      </p>
+                      <p className="text-text-secondary">
+                        After: {JSON.stringify(selectedEntry.metadata.after?.[field])}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}

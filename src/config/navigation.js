@@ -18,5 +18,5 @@ export const erpNavigation = [
   { id: 'ai-assistant', label: 'AI Assistant', icon: 'robot', permission: 'view_analytics' },
   { id: 'support', label: 'Support', icon: 'headset', permission: 'view_dashboard' },
   { id: 'audit', label: 'Audit Log', icon: 'clipboard', permission: 'view_audit' },
-  { id: 'settings', label: 'Settings', icon: 'settings', permission: 'manage_settings' },
+  { id: 'settings', label: 'Settings', icon: 'settings', permission: 'view_dashboard' },
 ]

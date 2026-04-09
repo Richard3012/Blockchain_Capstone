@@ -9,6 +9,7 @@ router.use(requireAuth)
 router.post('/', ordersController.create)
 router.get('/', ordersController.list)
 router.get('/:id', ordersController.getById)
+router.patch('/:id', ordersController.update)
 router.put('/:id/status', ordersController.updateStatus)
 
 export default router

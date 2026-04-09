@@ -23,6 +23,20 @@ const getContract = () => {
   }
 }
 
+const isRecoverableChainError = (error) => {
+  const message = String(error?.shortMessage || error?.reason || error?.message || '').toLowerCase()
+  return [
+    'could not coalesce error',
+    'failed to fetch',
+    'network error',
+    'missing response',
+    'connect econnrefused',
+    'connection refused',
+    'unsupported network',
+    'timeout',
+  ].some((fragment) => message.includes(fragment))
+}
+
 export const blockchainService = {
   async anchorRecord({ companyId, entityType, entityId, recordHash, ipfsCid, requestedBy, actorAddress }) {
     const connection = getContract()
@@ -66,15 +80,16 @@ export const blockchainService = {
         blockNumber: receipt.blockNumber,
       })
     } catch (error) {
-      blockchainRecord.status = 'failed'
       blockchainRecord.errorMessage = error?.shortMessage || error?.reason || error?.message || 'Blockchain anchor failed'
+      blockchainRecord.status = isRecoverableChainError(error) ? 'pending' : 'failed'
       await blockchainRecord.save()
 
-      logger.warn('blockchain.tx_failed', {
+      logger.warn(isRecoverableChainError(error) ? 'blockchain.tx_deferred' : 'blockchain.tx_failed', {
         entityType,
         entityId: entityId.toString(),
         recordHash,
         error: blockchainRecord.errorMessage,
+        status: blockchainRecord.status,
       })
     }
 

@@ -46,6 +46,9 @@ export default function Settings() {
     { id: 'wallet', label: 'Wallet', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2m0-6h3a1 1 0 011 1v4a1 1 0 01-1 1h-3m0-6v6m0-6h-4a2 2 0 00-2 2v2a2 2 0 002 2h4' },
     { id: 'notifications', label: 'Notifications', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
   ]
+  const walletRoleRequirement = user.role === 'admin' || user.role === 'inventory_manager'
+    ? 'Wallet recommended for blockchain verification and fulfillment/tamper demo actions.'
+    : 'Wallet is optional for your role. Routine ERP work does not require MetaMask.'
 
   useEffect(() => {
     walletService
@@ -256,6 +259,9 @@ export default function Settings() {
                 <p className="font-medium text-text-primary">How it works</p>
                 <p className="text-sm text-text-secondary mt-2">
                   BlockERP requests a nonce from the backend, MetaMask signs it, and the backend verifies the signature before saving your wallet address.
+                </p>
+                <p className="text-sm text-text-secondary mt-2">
+                  {walletRoleRequirement}
                 </p>
               </div>
               {walletConnection.connected && walletStatus.linkedWalletAddress && walletConnection.account.toLowerCase() !== walletStatus.linkedWalletAddress.toLowerCase() && (

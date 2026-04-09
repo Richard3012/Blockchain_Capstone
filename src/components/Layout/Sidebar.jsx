@@ -134,12 +134,10 @@ export default function Sidebar() {
   const clearSession = useStore((state) => state.clearSession)
 
   const handleNavClick = (item) => {
-    if (!hasPermission(item.permission)) {
-      addToast(`Access restricted for ${user.role}.`, 'warning')
-      return
-    }
     setActivePage(item.id)
   }
+
+  const visibleNavigation = erpNavigation.filter((item) => hasPermission(item.permission))
 
   const handleLogout = () => {
     authService.clearToken()
@@ -175,9 +173,8 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3">
-        {erpNavigation.map((item) => {
+        {visibleNavigation.map((item) => {
           const isActive = currentPage === item.id
-          const isLocked = !hasPermission(item.permission)
 
           return (
             <button
@@ -187,19 +184,14 @@ export default function Sidebar() {
                 w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm font-medium transition-colors
                 ${isActive
                   ? 'bg-blue-light text-blue border-l-[3px] border-l-blue pl-[13px]'
-                  : isLocked
-                    ? 'text-text-muted hover:bg-gray-50 opacity-50'
-                    : 'text-text-secondary hover:bg-gray-50 hover:text-text-primary'
+                  : 'text-text-secondary hover:bg-gray-50 hover:text-text-primary'
                 }
               `}
             >
-              <span className={isActive ? 'text-blue' : isLocked ? 'text-text-muted' : 'text-text-secondary'}>
+              <span className={isActive ? 'text-blue' : 'text-text-secondary'}>
                 {icons[item.icon]}
               </span>
               <span className="flex-1">{item.label}</span>
-              {isLocked && (
-                <span className="text-text-muted">{icons.lock}</span>
-              )}
             </button>
           )
         })}

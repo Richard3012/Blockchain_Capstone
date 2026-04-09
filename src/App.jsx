@@ -26,6 +26,7 @@ import DemandForecast from './pages/DemandForecast'
 import DeliveryTracking from './pages/DeliveryTracking'
 import InvoiceScanner from './pages/InvoiceScanner'
 import AIAssistant from './pages/AIAssistant'
+import { erpNavigation } from './config/navigation'
 import { authService } from './services/authService'
 import { useStore } from './store/useStore'
 
@@ -64,6 +65,8 @@ export default function App() {
   const setSession = useStore((state) => state.setSession)
   const clearSession = useStore((state) => state.clearSession)
   const addToast = useStore((state) => state.addToast)
+  const hasPermission = useStore((state) => state.hasPermission)
+  const setActivePage = useStore((state) => state.setActivePage)
   const theme = useStore((state) => state.theme)
   const setTheme = useStore((state) => state.setTheme)
 
@@ -110,6 +113,18 @@ export default function App() {
         setAuthInitialized(true)
       })
   }, [clearSession, setSession])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const currentNav = erpNavigation.find((item) => item.id === currentPage)
+    if (!currentNav) return
+    if (!hasPermission(currentNav.permission)) {
+      const firstAllowed = erpNavigation.find((item) => hasPermission(item.permission))
+      if (firstAllowed) {
+        setActivePage(firstAllowed.id)
+      }
+    }
+  }, [currentPage, hasPermission, isAuthenticated, setActivePage])
 
   const handleLogin = async (credentials) => {
     setAuthError('')
