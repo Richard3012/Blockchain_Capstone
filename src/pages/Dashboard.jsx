@@ -73,6 +73,7 @@ export default function Dashboard() {
     { label: 'delivered', value: orderStats.delivered },
     { label: 'cancelled', value: orderStats.cancelled },
   ]
+  const revenueChartData = dashboardSummary?.charts?.revenueHistory || revenueHistory
 
   const donutSegments = [
     { label: 'Processing', value: orderStatusData.find((item) => item.label === 'processing')?.value || 0, color: '#f39c12' },
@@ -108,9 +109,9 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-border">
           <div className="mb-4">
             <h3 className="font-semibold text-text-primary">Revenue Over Time</h3>
-            <p className="text-sm text-text-secondary">Replace with backend monthly aggregation in Phase 4</p>
+            <p className="text-sm text-text-secondary">Monthly aggregation from MongoDB invoices</p>
           </div>
-          <LineChart data={revenueHistory} width={500} height={250} />
+          <LineChart data={revenueChartData} width={500} height={250} />
         </div>
 
         <div className="bg-white rounded-xl p-6 shadow-sm border border-border">

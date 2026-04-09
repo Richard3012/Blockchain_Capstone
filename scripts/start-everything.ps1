@@ -89,7 +89,14 @@ if (-not (Wait-ForPort -port 8545 -timeoutSeconds 40)) {
 }
 
 Write-Step 'Deploying ERPRecordAnchor'
+$previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+$PSNativeCommandUseErrorActionPreference = $false
 $deployOutput = & npm.cmd run deploy:anchor -- --network localhost 2>&1 | Out-String
+$deployExitCode = $LASTEXITCODE
+$PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+if ($deployExitCode -ne 0) {
+  throw "ERPRecordAnchor deployment failed with exit code $deployExitCode."
+}
 Write-Host $deployOutput
 $match = [regex]::Match($deployOutput, 'ERPRecordAnchor deployed at:\s*(0x[a-fA-F0-9]{40})')
 if ($match.Success) {

@@ -6,6 +6,40 @@ import { Product } from '../models/product.model.js'
 import { PurchaseOrder } from '../models/purchase-order.model.js'
 import { SalesOrder } from '../models/sales-order.model.js'
 import { getDevDashboardSummary } from './dev-fallback.service.js'
+import { logger } from '../utils/logger.js'
+
+const buildRevenueHistory = (invoices) => {
+  const now = new Date()
+  const buckets = []
+
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1)
+    const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`
+    buckets.push({
+      key,
+      month: monthDate.toLocaleString('en-IN', { month: 'short' }),
+      revenue: 0,
+    })
+  }
+
+  const bucketMap = new Map(buckets.map((bucket) => [bucket.key, bucket]))
+
+  invoices.forEach((invoice) => {
+    const sourceDate = invoice.issueDate || invoice.createdAt
+    if (!sourceDate) return
+
+    const date = new Date(sourceDate)
+    if (Number.isNaN(date.getTime())) return
+
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const bucket = bucketMap.get(key)
+    if (!bucket) return
+
+    bucket.revenue += invoice.totalAmount || 0
+  })
+
+  return buckets
+}
 
 export const dashboardService = {
   async getSummary(companyId) {
@@ -30,6 +64,16 @@ export const dashboardService = {
     const lowStockCount = products.filter((product) => product.currentStock <= product.reorderLevel).length
     const inventoryValue = products.reduce((sum, product) => sum + (product.currentStock * product.costPrice), 0)
     const pendingInvoices = invoices.filter((invoice) => invoice.status === 'issued' || invoice.status === 'overdue').length
+    const revenueHistory = buildRevenueHistory(invoices)
+
+    logger.info('dashboard.summary_fetched', {
+      companyId: companyId.toString(),
+      orders: orders.length,
+      invoices: invoices.length,
+      products: products.length,
+      customers: customers.length,
+      revenuePoints: revenueHistory.length,
+    })
 
     return {
       kpis: {
@@ -51,6 +95,7 @@ export const dashboardService = {
           label: status,
           value: invoices.filter((invoice) => invoice.status === status).length,
         })),
+        revenueHistory,
       },
       panels: {
         recentOrders: orders.slice(0, 5),

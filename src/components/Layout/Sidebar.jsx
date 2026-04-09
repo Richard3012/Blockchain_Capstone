@@ -1,5 +1,6 @@
 import { erpNavigation } from '../../config/navigation'
 import { useStore } from '../../store/useStore'
+import { authService } from '../../services/authService'
 
 const icons = {
   dashboard: (
@@ -130,13 +131,20 @@ export default function Sidebar() {
   const user = useStore((state) => state.user)
   const hasPermission = useStore((state) => state.hasPermission)
   const addToast = useStore((state) => state.addToast)
+  const clearSession = useStore((state) => state.clearSession)
 
   const handleNavClick = (item) => {
     if (!hasPermission(item.permission)) {
-      addToast(`Access restricted. ${user.role === 'viewer' ? 'Upgrade to an ERP manager role.' : 'Admin role required.'}`, 'warning')
+      addToast(`Access restricted for ${user.role}.`, 'warning')
       return
     }
     setActivePage(item.id)
+  }
+
+  const handleLogout = () => {
+    authService.clearToken()
+    clearSession()
+    window.location.href = 'http://localhost:3000'
   }
 
   return (
@@ -198,7 +206,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t border-border p-3">
-        <button className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-text-secondary hover:bg-gray-50 hover:text-text-primary rounded-lg transition-colors">
+        <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-text-secondary hover:bg-gray-50 hover:text-text-primary rounded-lg transition-colors">
           {icons.logout}
           <span>Logout</span>
         </button>

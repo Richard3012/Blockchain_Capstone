@@ -10,6 +10,29 @@ import { apiClient } from '../services/api/client'
 
 const fetched = {}
 
+const normalizeOrderStatus = (status) => {
+  const value = String(status || 'pending').toLowerCase()
+  if (['pending', 'processing', 'shipped', 'in_transit', 'delivered', 'cancelled'].includes(value)) {
+    return value
+  }
+  return 'pending'
+}
+
+const normalizeBlockchainStatus = (status) => {
+  const value = String(status || 'pending').toLowerCase()
+  if (['anchored', 'verified', 'confirmed'].includes(value)) return 'confirmed'
+  if (value === 'failed') return 'failed'
+  return 'pending'
+}
+
+const normalizeInvoiceStatus = (status) => {
+  const value = String(status || 'draft').toLowerCase()
+  if (['draft', 'issued', 'paid', 'overdue', 'cancelled'].includes(value)) {
+    return value
+  }
+  return 'draft'
+}
+
 function safeFetch(key, apiFn, setter) {
   if (fetched[key]) return
   fetched[key] = true
@@ -41,24 +64,34 @@ export function useLiveData(...collections) {
         case 'orders':
           safeFetch('orders', () => apiClient.get('/orders'), (rows) => {
             setOrders(rows.map((o) => ({
+              mongoId: o._id,
               id: o.orderNumber || o._id,
               customer: o.customer?.name || o.customerName || '-',
               amount: o.totalAmount || 0,
               total: o.totalAmount || 0,
-              status: o.status,
+              items: Array.isArray(o.items) ? o.items.length : Number(o.items || 0),
+              status: normalizeOrderStatus(o.status),
               date: o.createdAt,
+              blockchainHash: o.blockchainHash || o.hash || '',
+              verificationStatus: o.verificationStatus || 'not_requested',
             })))
           })
           break
         case 'invoices':
           safeFetch('invoices', () => apiClient.get('/invoices'), (rows) => {
             setInvoices(rows.map((i) => ({
+              mongoId: i._id,
               id: i.invoiceNumber || i._id,
+              order: i.order?.orderNumber || i.orderNumber || '-',
               customer: i.customer?.name || i.vendorName || '-',
+              store: i.store?.name || i.storeName || '-',
               amount: i.totalAmount || 0,
-              status: i.status,
-              date: i.invoiceDate || i.createdAt,
+              status: normalizeInvoiceStatus(i.status),
+              issueDate: i.issueDate || i.invoiceDate || i.createdAt,
+              date: i.issueDate || i.invoiceDate || i.createdAt,
               dueDate: i.dueDate,
+              blockchainHash: i.hash || '',
+              verificationStatus: i.verificationStatus || 'not_requested',
             })))
           })
           break
@@ -91,6 +124,9 @@ export function useLiveData(...collections) {
                 name: p.name,
                 sku: p.sku,
                 category: p.category || '-',
+                unit: p.unit || 'pcs',
+                costPrice: p.costPrice || 0,
+                salePrice: p.salePrice || p.costPrice || 0,
                 price: p.salePrice || p.costPrice || 0,
                 stock,
                 reorderLevel: reorder,
@@ -108,9 +144,9 @@ export function useLiveData(...collections) {
               action: a.action,
               entity: a.entityType,
               entityId: a.entityId,
-              hash: a.txHash || '',
+              hash: a.hash || a.txHash || '',
               timestamp: a.createdAt,
-              details: a.details,
+              details: a.summary || a.details || '',
             })))
           })
           break
@@ -120,9 +156,11 @@ export function useLiveData(...collections) {
               id: b._id,
               type: b.entityType || 'Record',
               entityId: b.entityId || '-',
-              hash: b.txHash || b.contentHash || '',
-              status: b.verified ? 'Verified' : 'Pending',
+              hash: b.txHash || b.recordHash || b.contentHash || '',
+              status: normalizeBlockchainStatus(b.status || (b.verified ? 'confirmed' : 'pending')),
               timestamp: b.createdAt,
+              blockNumber: b.blockNumber,
+              errorMessage: b.errorMessage || '',
             })))
           })
           break

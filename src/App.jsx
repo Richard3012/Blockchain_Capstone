@@ -64,10 +64,25 @@ export default function App() {
   const setSession = useStore((state) => state.setSession)
   const clearSession = useStore((state) => state.clearSession)
   const addToast = useStore((state) => state.addToast)
+  const theme = useStore((state) => state.theme)
+  const setTheme = useStore((state) => state.setTheme)
 
   const [authLoading, setAuthLoading] = useState(true)
   const [authError, setAuthError] = useState('')
   const [authInitialized, setAuthInitialized] = useState(false)
+
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem('blockerp-theme')
+    if (storedTheme === 'dark' || storedTheme === 'light') {
+      setTheme(storedTheme)
+    }
+  }, [setTheme])
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.toggle('theme-dark', theme === 'dark')
+    window.localStorage.setItem('blockerp-theme', theme)
+  }, [theme])
 
   useEffect(() => {
     const token = authService.getToken()

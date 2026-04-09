@@ -2,23 +2,24 @@ import { apiClient } from './api/client'
 
 const TOKEN_KEY = 'blockerp-token'
 const AUTH_FLAG_KEY = 'blockerp-authenticated'
+const storage = () => window.sessionStorage
 
 export const authService = {
   tokenKey: TOKEN_KEY,
   authFlagKey: AUTH_FLAG_KEY,
   getToken() {
-    return localStorage.getItem(TOKEN_KEY)
+    return storage().getItem(TOKEN_KEY)
   },
   hasAuthFlag() {
-    return localStorage.getItem(AUTH_FLAG_KEY) === 'true'
+    return storage().getItem(AUTH_FLAG_KEY) === 'true'
   },
   setToken(token) {
-    localStorage.setItem(TOKEN_KEY, token)
-    localStorage.setItem(AUTH_FLAG_KEY, 'true')
+    storage().setItem(TOKEN_KEY, token)
+    storage().setItem(AUTH_FLAG_KEY, 'true')
   },
   clearToken() {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(AUTH_FLAG_KEY)
+    storage().removeItem(TOKEN_KEY)
+    storage().removeItem(AUTH_FLAG_KEY)
   },
   login(payload) {
     return apiClient.post('/auth/login', payload)

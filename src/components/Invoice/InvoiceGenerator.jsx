@@ -6,12 +6,10 @@ import { QRCodeSVG } from 'qrcode.react'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 
-export default function InvoiceGenerator({ isOpen, onClose, existingInvoice = null }) {
+export default function InvoiceGenerator({ isOpen, onClose, existingInvoice = null, onSaveInvoice }) {
   const customers = useStore((state) => state.customers)
   const inventory = useStore((state) => state.inventory)
-  const addInvoice = useStore((state) => state.addInvoice)
   const addToast = useStore((state) => state.addToast)
-  const user = useStore((state) => state.user)
   
   const invoiceRef = useRef(null)
   
@@ -39,7 +37,7 @@ export default function InvoiceGenerator({ isOpen, onClose, existingInvoice = nu
   const total = taxableAmount + taxAmount
 
   const handleCustomerChange = (customerId) => {
-    const customer = customers.find(c => c.id === parseInt(customerId))
+    const customer = customers.find((c) => String(c.id) === String(customerId))
     if (customer) {
       setInvoiceData(prev => ({
         ...prev,
@@ -62,7 +60,7 @@ export default function InvoiceGenerator({ isOpen, onClose, existingInvoice = nu
     setInvoiceData(prev => {
       const newItems = [...prev.items]
       if (field === 'productId') {
-        const product = inventory.find(p => p.id === parseInt(value))
+        const product = inventory.find((p) => String(p.id) === String(value))
         if (product) {
           newItems[index] = {
             ...newItems[index],
@@ -90,27 +88,35 @@ export default function InvoiceGenerator({ isOpen, onClose, existingInvoice = nu
     }))
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!invoiceData.customerName || invoiceData.items.length === 0) {
       addToast('Please add customer and at least one item', 'error')
       return
     }
-    
-    const invoice = {
-      id: invoiceNumber,
-      customer: invoiceData.customerName,
-      amount: total,
-      status: 'Draft',
+
+    const invoicePayload = {
+      customerId: invoiceData.customerId,
+      customerName: invoiceData.customerName,
+      customerEmail: invoiceData.customerEmail,
       dueDate: invoiceData.dueDate,
+      subtotal,
+      taxAmount,
+      totalAmount: total,
       items: invoiceData.items,
-      tax: invoiceData.tax,
-      discount: invoiceData.discount,
-      notes: invoiceData.notes
+      notes: invoiceData.notes,
+      taxRate: invoiceData.tax,
+      discountRate: invoiceData.discount,
     }
-    
-    addInvoice(invoice)
-    addToast('Invoice created successfully!', 'success')
-    onClose()
+
+    try {
+      if (onSaveInvoice) {
+        await onSaveInvoice(invoicePayload)
+      }
+      addToast('Invoice created successfully!', 'success')
+      onClose()
+    } catch (error) {
+      addToast(error.message || 'Failed to create invoice', 'error')
+    }
   }
 
   const handleDownloadPDF = async () => {

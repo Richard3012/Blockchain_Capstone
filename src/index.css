@@ -21,6 +21,15 @@
   --border: #dadce0;
 }
 
+.theme-dark {
+  --text-primary: #f5f7fb;
+  --text-secondary: #b7c0d1;
+  --text-muted: #8590a6;
+  --background: #0f1723;
+  --surface: #16202f;
+  --border: #253246;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -36,6 +45,41 @@ body {
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.theme-dark body,
+body.theme-dark {
+  background-color: var(--background);
+  color: var(--text-primary);
+}
+
+.theme-dark .bg-white {
+  background-color: var(--surface) !important;
+}
+
+.theme-dark .bg-gray-50,
+.theme-dark .hover\:bg-gray-50:hover {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+.theme-dark .bg-gray-100,
+.theme-dark .hover\:bg-gray-100:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-dark .border-border,
+.theme-dark .border-gray-100,
+.theme-dark .border-gray-200,
+.theme-dark .border-b,
+.theme-dark .border-t {
+  border-color: var(--border) !important;
+}
+
+.theme-dark input,
+.theme-dark select,
+.theme-dark textarea {
+  background-color: var(--surface);
+  color: var(--text-primary);
 }
 
 /* Google Material Design Typography */

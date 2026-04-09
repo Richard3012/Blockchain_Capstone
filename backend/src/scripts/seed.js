@@ -1,13 +1,17 @@
 import 'dotenv/config'
 
 import { ensureBootstrapData } from '../bootstrap/ensure-bootstrap-data.js'
-import { connectDatabase } from '../config/database.js'
+import { connectDatabase, databaseState } from '../config/database.js'
 import { logger } from '../utils/logger.js'
 
 const run = async () => {
   await connectDatabase()
   await ensureBootstrapData()
-  logger.info('seed.completed', { adminEmail: 'admin@blockerp.local' })
+  if (databaseState.connected) {
+    logger.info('seed.completed', { adminEmail: 'admin@blockerp.local', mode: databaseState.mode })
+  } else {
+    logger.warn('seed.skipped', { reason: 'database unavailable', mode: databaseState.mode, error: databaseState.error })
+  }
   process.exit(0)
 }
 

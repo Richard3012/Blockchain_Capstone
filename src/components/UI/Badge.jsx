@@ -11,16 +11,30 @@ const variants = {
   
   // Order status
   'Shipped': 'bg-purple/10 text-purple',
+  'shipped': 'bg-purple/10 text-purple',
+  'In Transit': 'bg-cyan/10 text-cyan',
+  'in_transit': 'bg-cyan/10 text-cyan',
   'Processing': 'bg-orange/10 text-orange',
+  'processing': 'bg-orange/10 text-orange',
   'Delivered': 'bg-green/10 text-green',
+  'delivered': 'bg-green/10 text-green',
   'Cancelled': 'bg-red/10 text-red',
+  'cancelled': 'bg-red/10 text-red',
   'Pending': 'bg-gray-100 text-text-secondary',
+  'pending': 'bg-gray-100 text-text-secondary',
   
   // Invoice status
   'Paid': 'bg-green/10 text-green',
+  'paid': 'bg-green/10 text-green',
   'Overdue': 'bg-red/10 text-red',
+  'overdue': 'bg-red/10 text-red',
   'Draft': 'bg-gray-100 text-text-secondary',
+  'draft': 'bg-gray-100 text-text-secondary',
   'Sent': 'bg-blue/10 text-blue',
+  'issued': 'bg-blue/10 text-blue',
+  'not_requested': 'bg-gray-100 text-text-secondary',
+  'verified': 'bg-green/10 text-green',
+  'failed': 'bg-red/10 text-red',
   
   // Ticket status
   'open': 'bg-blue/10 text-blue border border-blue/30',
@@ -41,6 +55,8 @@ const variants = {
   
   // Blockchain
   'Verified': 'bg-green/10 text-green',
+  'confirmed': 'bg-green/10 text-green',
+  'tampered': 'bg-red/10 text-red',
   
   // Type badges
   'Invoice': 'bg-blue/10 text-blue',
@@ -58,6 +74,8 @@ const variants = {
   'warning': 'bg-orange/10 text-orange',
   'danger': 'bg-red/10 text-red',
   'error': 'bg-red/10 text-red',
+  'info': 'bg-blue/10 text-blue',
+  'default': 'bg-gray-100 text-text-secondary',
   'gray': 'bg-gray-100 text-text-secondary',
   'purple': 'bg-purple/10 text-purple',
 }

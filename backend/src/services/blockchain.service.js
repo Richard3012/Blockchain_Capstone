@@ -48,22 +48,35 @@ export const blockchainService = {
 
     logger.info('blockchain.tx_sent', { entityType, entityId: entityId.toString(), recordHash })
 
-    const transaction = await contract.anchorRecord(entityType, entityId.toString(), recordHash, ipfsCid || '', anchoredBy)
-    const receipt = await transaction.wait()
+    try {
+      const transaction = await contract.anchorRecord(entityType, entityId.toString(), recordHash, ipfsCid || '', anchoredBy)
+      const receipt = await transaction.wait()
 
-    blockchainRecord.status = 'anchored'
-    blockchainRecord.txHash = transaction.hash
-    blockchainRecord.blockNumber = receipt.blockNumber
-    blockchainRecord.contractAddress = contract.target
-    blockchainRecord.anchoredAt = new Date()
-    await blockchainRecord.save()
+      blockchainRecord.status = 'anchored'
+      blockchainRecord.txHash = transaction.hash
+      blockchainRecord.blockNumber = receipt.blockNumber
+      blockchainRecord.contractAddress = contract.target
+      blockchainRecord.anchoredAt = new Date()
+      await blockchainRecord.save()
 
-    logger.info('blockchain.tx_confirmed', {
-      entityType,
-      entityId: entityId.toString(),
-      txHash: transaction.hash,
-      blockNumber: receipt.blockNumber,
-    })
+      logger.info('blockchain.tx_confirmed', {
+        entityType,
+        entityId: entityId.toString(),
+        txHash: transaction.hash,
+        blockNumber: receipt.blockNumber,
+      })
+    } catch (error) {
+      blockchainRecord.status = 'failed'
+      blockchainRecord.errorMessage = error?.shortMessage || error?.reason || error?.message || 'Blockchain anchor failed'
+      await blockchainRecord.save()
+
+      logger.warn('blockchain.tx_failed', {
+        entityType,
+        entityId: entityId.toString(),
+        recordHash,
+        error: blockchainRecord.errorMessage,
+      })
+    }
 
     return blockchainRecord
   },
@@ -74,9 +87,26 @@ export const blockchainService = {
       return { verified: false, configured: false }
     }
 
-    const { contract } = connection
-    const verified = await contract.verifyRecord(entityType, entityId.toString(), recordHash)
-    return { verified, configured: true }
+    try {
+      const { contract } = connection
+      logger.info('blockchain.verify_requested', { entityType, entityId: entityId.toString(), recordHash })
+      const verified = await contract.verifyRecord(entityType, entityId.toString(), recordHash)
+      logger.info('blockchain.verify_completed', { entityType, entityId: entityId.toString(), verified })
+      return { verified, configured: true }
+    } catch (error) {
+      const message = error?.shortMessage || error?.reason || error?.message || 'Blockchain verification failed'
+      logger.warn('blockchain.verify_failed', {
+        entityType,
+        entityId: entityId.toString(),
+        recordHash,
+        error: message,
+      })
+      return {
+        verified: false,
+        configured: true,
+        error: message,
+      }
+    }
   },
 
   async getLedger(companyId) {

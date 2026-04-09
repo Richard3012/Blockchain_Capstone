@@ -4,6 +4,7 @@ import { asyncHandler } from '../middlewares/async-handler.js'
 import { Product } from '../models/product.model.js'
 import { InventoryTransaction } from '../models/inventory-transaction.model.js'
 import { auditService } from '../services/audit.service.js'
+import { verificationService } from '../services/verification.service.js'
 import { logger } from '../utils/logger.js'
 import { companyFilter } from '../utils/scope.js'
 
@@ -60,6 +61,14 @@ const mutateStock = async ({ req, transactionType, quantity, storeId, relatedSto
     createdBy: req.user._id,
   })
 
+  const blockchainRecord = await verificationService.anchorEntity({
+    companyId: req.user.companyId,
+    entityType: 'inventory_transaction',
+    entity: transaction,
+    requestedBy: req.user._id,
+    actorAddress: req.user.linkedWalletAddress || null,
+  })
+
   await auditService.record({
     companyId: req.user.companyId,
     action: `inventory.${transactionType}`,
@@ -72,7 +81,7 @@ const mutateStock = async ({ req, transactionType, quantity, storeId, relatedSto
 
   logger.info('inventory.updated', { productId: product._id.toString(), transactionType, quantity, currentStock: product.currentStock })
 
-  return { product, transaction }
+  return { product, transaction, blockchainRecord }
 }
 
 export const inventoryController = {
@@ -112,12 +121,14 @@ export const inventoryController = {
   }),
   lowStock: asyncHandler(async (req, res) => {
     const data = await Product.find(companyFilter(req.user, { $expr: { $lte: ['$currentStock', '$reorderLevel'] } }))
+    logger.info('inventory.low_stock_fetched', { companyId: req.user.companyId.toString(), count: data.length })
     res.json({ success: true, data })
   }),
   history: asyncHandler(async (req, res) => {
     const data = await InventoryTransaction.find(companyFilter(req.user, { product: req.params.productId }))
       .populate('product store relatedStore createdBy')
       .sort({ createdAt: -1 })
+    logger.info('inventory.history_fetched', { companyId: req.user.companyId.toString(), productId: req.params.productId, count: data.length })
     res.json({ success: true, data })
   }),
 }

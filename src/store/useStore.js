@@ -52,15 +52,75 @@ export const useStore = create((set, get) => ({
       permissions: ['view_all', 'edit_all', 'delete_all', 'manage_users', 'view_analytics', 'view_blockchain', 'view_audit', 'manage_settings', 'view_dashboard', 'view_orders', 'view_customers', 'view_inventory'],
       description: 'Full ERP access across master data, transactions, settings, and verification'
     },
-    manager: {
-      label: 'Operations Manager',
-      permissions: ['view_dashboard', 'view_orders', 'view_customers', 'view_inventory', 'view_analytics', 'view_blockchain', 'view_audit', 'edit_orders', 'edit_inventory', 'edit_customers'],
-      description: 'Operational ERP access for inventory, orders, invoicing, and reporting'
+    procurement_manager: {
+      label: 'Procurement Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_inventory', 'view_blockchain', 'view_audit', 'view_procurement', 'create_orders', 'edit_orders'],
+      description: 'Manage purchasing and review order integrity'
+    },
+    inventory_manager: {
+      label: 'Inventory Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_inventory', 'view_blockchain', 'view_audit', 'edit_inventory', 'view_procurement'],
+      description: 'Control inventory movements and stock visibility'
+    },
+    finance_manager: {
+      label: 'Finance Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_blockchain', 'view_audit', 'view_analytics', 'view_finance'],
+      description: 'Review invoices, payment impact, and finance summaries'
+    },
+    sales_staff: {
+      label: 'Sales Staff',
+      permissions: ['view_dashboard', 'view_orders', 'view_customers', 'create_orders'],
+      description: 'Create and track sales orders'
+    },
+    store_manager: {
+      label: 'Store Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_inventory', 'view_blockchain', 'view_audit', 'create_orders', 'edit_orders', 'edit_inventory'],
+      description: 'Manage store-level transactions and order reviews'
+    },
+    support_staff: {
+      label: 'Support Staff',
+      permissions: ['view_dashboard', 'view_orders', 'view_customers', 'view_inventory'],
+      description: 'Read operational ERP data for support tasks'
     },
     viewer: {
       label: 'Read Only',
       permissions: ['view_dashboard', 'view_orders', 'view_customers', 'view_inventory'],
       description: 'Read-only ERP access to core operational data'
+    },
+    manager: {
+      label: 'Operations Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_customers', 'view_inventory', 'view_analytics', 'view_blockchain', 'view_audit', 'edit_orders', 'edit_inventory', 'edit_customers'],
+      description: 'Legacy manager mapping retained for compatibility'
+    },
+    procurement: {
+      label: 'Procurement Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_inventory', 'view_blockchain', 'view_audit', 'view_procurement', 'create_orders', 'edit_orders'],
+      description: 'Legacy procurement mapping retained for compatibility'
+    },
+    inventory: {
+      label: 'Inventory Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_inventory', 'view_blockchain', 'view_audit', 'edit_inventory', 'view_procurement'],
+      description: 'Legacy inventory mapping retained for compatibility'
+    },
+    finance: {
+      label: 'Finance Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_blockchain', 'view_audit', 'view_analytics', 'view_finance'],
+      description: 'Legacy finance mapping retained for compatibility'
+    },
+    sales: {
+      label: 'Sales Staff',
+      permissions: ['view_dashboard', 'view_orders', 'view_customers', 'create_orders'],
+      description: 'Legacy sales mapping retained for compatibility'
+    },
+    support: {
+      label: 'Support Staff',
+      permissions: ['view_dashboard', 'view_orders', 'view_customers', 'view_inventory'],
+      description: 'Legacy support mapping retained for compatibility'
+    },
+    storemanager: {
+      label: 'Store Manager',
+      permissions: ['view_dashboard', 'view_orders', 'view_inventory', 'view_blockchain', 'view_audit', 'create_orders', 'edit_orders', 'edit_inventory'],
+      description: 'Legacy store manager mapping retained for compatibility'
     }
   },
   hasPermission: (permission) => {
@@ -245,19 +305,20 @@ export const useStore = create((set, get) => ({
     const orders = get().orders
     return {
       total: orders.length,
-      processing: orders.filter(o => o.status === 'Processing').length,
-      shipped: orders.filter(o => o.status === 'Shipped').length,
-      delivered: orders.filter(o => o.status === 'Delivered').length,
-      cancelled: orders.filter(o => o.status === 'Cancelled').length,
-      pending: orders.filter(o => o.status === 'Pending').length,
+      processing: orders.filter(o => String(o.status).toLowerCase() === 'processing').length,
+      shipped: orders.filter(o => String(o.status).toLowerCase() === 'shipped').length,
+      inTransit: orders.filter(o => String(o.status).toLowerCase() === 'in_transit').length,
+      delivered: orders.filter(o => String(o.status).toLowerCase() === 'delivered').length,
+      cancelled: orders.filter(o => String(o.status).toLowerCase() === 'cancelled').length,
+      pending: orders.filter(o => String(o.status).toLowerCase() === 'pending').length,
       totalValue: orders.reduce((sum, order) => sum + (order.total || order.amount || 0), 0),
     }
   },
   getInvoiceStats: () => {
     const invoices = get().invoices
-    const paidInvoices = invoices.filter(i => i.status === 'Paid')
-    const overdueInvoices = invoices.filter(i => i.status === 'Overdue')
-    const pendingInvoices = invoices.filter(i => i.status === 'Sent' || i.status === 'Draft')
+    const paidInvoices = invoices.filter(i => String(i.status).toLowerCase() === 'paid')
+    const overdueInvoices = invoices.filter(i => String(i.status).toLowerCase() === 'overdue')
+    const pendingInvoices = invoices.filter(i => ['issued', 'sent', 'draft'].includes(String(i.status).toLowerCase()))
     return {
       total: invoices.length,
       paid: paidInvoices.length,
@@ -308,9 +369,9 @@ export const useStore = create((set, get) => ({
     const last24Hours = Date.now() - (24 * 60 * 60 * 1000)
     return {
       total: txs.length,
-      confirmed: txs.filter(t => t.status === 'Verified' || t.status === 'Confirmed').length,
-      pending: txs.filter(t => t.status === 'Pending').length,
-      failed: 0,
+      confirmed: txs.filter(t => String(t.status).toLowerCase() === 'confirmed').length,
+      pending: txs.filter(t => String(t.status).toLowerCase() === 'pending').length,
+      failed: txs.filter(t => String(t.status).toLowerCase() === 'failed').length,
       todayCount: txs.filter((tx) => new Date(tx.timestamp).getTime() >= last24Hours).length,
     }
   },

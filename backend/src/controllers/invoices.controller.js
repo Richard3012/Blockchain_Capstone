@@ -80,7 +80,26 @@ export const invoicesController = {
     res.status(201).json({ success: true, data: { invoice, blockchainRecord } })
   }),
   list: asyncHandler(async (req, res) => {
-    const data = await Invoice.find(companyFilter(req.user)).populate('customer order store createdBy').sort({ createdAt: -1 })
+    const invoices = await Invoice.find(companyFilter(req.user)).populate('customer order store createdBy').sort({ createdAt: -1 })
+    const data = await Promise.all(
+      invoices.map(async (invoice) => {
+        try {
+          const verification = await verificationService.verifyEntity({
+            companyId: req.user.companyId,
+            entityType: 'invoice',
+            entity: invoice,
+          })
+          return {
+            ...invoice.toObject(),
+            verificationStatus: verification?.status || invoice.verificationStatus,
+          }
+        } catch {
+          return invoice.toObject()
+        }
+      }),
+    )
+
+    logger.info('finance.invoices_fetched', { companyId: req.user.companyId.toString(), count: data.length })
     res.json({ success: true, data })
   }),
   getById: asyncHandler(async (req, res) => {
@@ -140,8 +159,13 @@ export const invoicesController = {
     }
 
     const blockchainRecord = await BlockchainRecord.findOne({ companyId: req.user.companyId, entityType: 'invoice', entityId: invoice._id.toString() }).sort({ createdAt: -1 })
-    const verification = invoice.hash && blockchainRecord
-      ? await blockchainService.verifyRecord('invoice', invoice._id.toString(), invoice.hash)
+    const integrity = await verificationService.verifyEntity({
+      companyId: req.user.companyId,
+      entityType: 'invoice',
+      entity: invoice,
+    })
+    const chainVerification = integrity.currentHash && blockchainRecord
+      ? await blockchainService.verifyRecord('invoice', invoice._id.toString(), integrity.currentHash)
       : { verified: false, configured: Boolean(blockchainRecord) }
 
     res.json({
@@ -150,9 +174,11 @@ export const invoicesController = {
         invoiceId: invoice._id,
         invoiceNumber: invoice.invoiceNumber,
         hash: invoice.hash || null,
+        currentHash: integrity.currentHash || null,
         documentCid: invoice.documentCid || null,
-        verificationStatus: verification.verified ? 'verified' : 'not_verified',
+        verificationStatus: integrity.status || (chainVerification.verified ? 'verified' : 'not_verified'),
         blockchainRecord,
+        blockchainVerified: chainVerification.verified,
       },
     })
   }),
