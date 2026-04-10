@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { authService } from '../services/authService'
 
 export default function Login({ onSubmit, loading, error }) {
   const [form, setForm] = useState({
-    email: 'admin@blockerp.local',
-    password: 'ChangeMe123!',
+    email: authService.getLastEmail(),
+    password: authService.getLastPassword(),
   })
 
   return (

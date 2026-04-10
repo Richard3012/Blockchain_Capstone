@@ -30,7 +30,7 @@ export const tdsService = {
     return apiClient.get(`/tds/deductions${params ? `?${params}` : ''}`)
   },
   getQuarterlySummary(fy, quarter) { return apiClient.get(`/tds/quarterly/${fy}/${quarter}`) },
-  markDeposited(id, challanNumber) { return apiClient.patch(`/tds/deductions/${id}/deposit`, { challanNumber }) },
+  markDeposited(id, challanNumber) { return apiClient.put(`/tds/deductions/${id}/deposit`, { challanNumber }) },
 }
 
 export const demandForecastService = {

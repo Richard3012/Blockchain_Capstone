@@ -12,7 +12,6 @@ export const erpNavigation = [
   { id: 'gst', label: 'GST Compliance', icon: 'receipt', permission: 'view_analytics' },
   { id: 'accounting', label: 'Accounting', icon: 'calculator', permission: 'view_analytics' },
   { id: 'tds', label: 'TDS Management', icon: 'percent', permission: 'view_analytics' },
-  { id: 'demand-forecast', label: 'Demand Forecast', icon: 'trending', permission: 'view_analytics' },
   { id: 'invoice-scanner', label: 'Invoice Scanner', icon: 'camera', permission: 'view_orders' },
   { id: 'ai-assistant', label: 'AI Assistant', icon: 'robot', permission: 'view_analytics' },
   { id: 'hr-management', label: 'HR Management', icon: 'users', permission: 'view_all' },

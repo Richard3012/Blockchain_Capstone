@@ -22,7 +22,6 @@ import Support from './pages/Support'
 import GSTCompliance from './pages/GSTCompliance'
 import Accounting from './pages/Accounting'
 import TDSManagement from './pages/TDSManagement'
-import DemandForecast from './pages/DemandForecast'
 import InvoiceScanner from './pages/InvoiceScanner'
 import AIAssistant from './pages/AIAssistant'
 import HRManagement from './pages/HRManagement'
@@ -53,7 +52,6 @@ const pageMap = {
   gst: GSTCompliance,
   accounting: Accounting,
   tds: TDSManagement,
-  'demand-forecast': DemandForecast,
   'invoice-scanner': InvoiceScanner,
   'ai-assistant': AIAssistant,
   'hr-management': HRManagement,
@@ -142,6 +140,7 @@ export default function App() {
 
     try {
       const result = await authService.login(credentials)
+      authService.setLastCredentials(credentials.email.trim(), credentials.password)
       authService.setToken(result.token)
       setSession({ token: result.token, user: result.user })
       addToast('Login successful', 'success')

@@ -3,12 +3,15 @@ import bcrypt from 'bcryptjs'
 import { AssetRecord } from '../models/asset-record.model.js'
 import { databaseState } from '../config/database.js'
 import { ROLES } from '../constants/roles.js'
+import { Account } from '../models/account.model.js'
 import { AuditLog } from '../models/audit-log.model.js'
 import { BlockchainRecord } from '../models/blockchain-record.model.js'
 import Company from '../models/company.model.js'
 import { Customer } from '../models/customer.model.js'
 import { EmployeeRecord } from '../models/employee-record.model.js'
+import { GSTReturn } from '../models/gst-return.model.js'
 import { Invoice } from '../models/invoice.model.js'
+import { JournalEntry } from '../models/journal-entry.model.js'
 import { ManagedDocument } from '../models/managed-document.model.js'
 import { MaterialPlan } from '../models/material-plan.model.js'
 import { Payment } from '../models/payment.model.js'
@@ -18,9 +21,13 @@ import { SalesOrder } from '../models/sales-order.model.js'
 import { Store } from '../models/store.model.js'
 import { Supplier } from '../models/supplier.model.js'
 import { SupportTicket } from '../models/support-ticket.model.js'
+import { TDSEntry } from '../models/tds-entry.model.js'
 import { User } from '../models/user.model.js'
 import { WorkflowRequest } from '../models/workflow-request.model.js'
 import { WorkOrder } from '../models/work-order.model.js'
+import { accountingService } from '../services/accounting.service.js'
+import { gstService } from '../services/gst.service.js'
+import { tdsService } from '../services/tds.service.js'
 import { verificationService } from '../services/verification.service.js'
 import { logger } from '../utils/logger.js'
 import { hashRecord } from '../utils/hash-record.js'
@@ -386,6 +393,95 @@ export const ensureBootstrapData = async () => {
     },
     { new: true, upsert: true },
   )
+
+  await accountingService.initializeAccounts(company._id)
+
+  const existingAccounts = await Account.find({ companyId: company._id, isActive: true }).lean()
+  const accountMap = Object.fromEntries(existingAccounts.map((account) => [account.code, account]))
+
+  const existingJournalEntries = await JournalEntry.countDocuments({ companyId: company._id })
+  if (existingJournalEntries === 0) {
+    await accountingService.createJournalEntry(
+      company._id,
+      {
+        date: invoiceMonthDate(2),
+        description: 'Seed opening balances for retail ERP finance demo',
+        reference: 'OPENING-BALANCE',
+        lines: [
+          { account: accountMap['1000']._id, debit: 350000, credit: 0, description: 'Opening cash balance' },
+          { account: accountMap['1200']._id, debit: 180000, credit: 0, description: 'Opening inventory value' },
+          { account: accountMap['3000']._id, debit: 0, credit: 530000, description: 'Owner equity' },
+        ],
+      },
+      users['admin@blockerp.local']._id,
+    )
+
+    await accountingService.createJournalEntry(
+      company._id,
+      {
+        date: invoiceMonthDate(1),
+        description: 'Seed revenue and GST recognition for invoice demo',
+        reference: 'INV-DEMO-003',
+        lines: [
+          { account: accountMap['1100']._id, debit: 10608.2, credit: 0, description: 'Accounts receivable' },
+          { account: accountMap['4000']._id, debit: 0, credit: 8990, description: 'Sales revenue' },
+          { account: accountMap['2100']._id, debit: 0, credit: 1618.2, description: 'GST payable' },
+        ],
+      },
+      users['finance@blockerp.local']._id,
+    )
+
+    await accountingService.createJournalEntry(
+      company._id,
+      {
+        date: invoiceMonthDate(0),
+        description: 'Seed monthly operating expenses',
+        reference: 'EXP-DEMO-APR',
+        lines: [
+          { account: accountMap['5100']._id, debit: 42000, credit: 0, description: 'Payroll' },
+          { account: accountMap['5200']._id, debit: 18000, credit: 0, description: 'Rent' },
+          { account: accountMap['5300']._id, debit: 9000, credit: 0, description: 'Utilities' },
+          { account: accountMap['1000']._id, debit: 0, credit: 69000, description: 'Cash payment' },
+        ],
+      },
+      users['finance@blockerp.local']._id,
+    )
+  }
+
+  const currentPeriod = `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`
+  await gstService.fileReturn(company._id, 'GSTR1', currentPeriod, users['finance@blockerp.local']._id)
+
+  const existingTdsEntries = await TDSEntry.countDocuments({ companyId: company._id })
+  if (existingTdsEntries === 0) {
+    const entryOne = await tdsService.recordDeduction(
+      company._id,
+      {
+        section: '194C',
+        deductee: 'Metro Wholesale Distributors',
+        deducteePAN: 'AAACM2002L',
+        paymentAmount: 240000,
+        tdsRate: 2,
+        tdsAmount: 4800,
+        paymentDate: new Date().toISOString().split('T')[0],
+      },
+      users['finance@blockerp.local']._id,
+    )
+    await tdsService.markDeposited(company._id, entryOne._id, 'CHL-APR-0001')
+
+    await tdsService.recordDeduction(
+      company._id,
+      {
+        section: '194J',
+        deductee: 'KLS Compliance Consultants',
+        deducteePAN: 'AAACK3100Q',
+        paymentAmount: 85000,
+        tdsRate: 10,
+        tdsAmount: 8500,
+        paymentDate: invoiceMonthDate(0).toISOString().split('T')[0],
+      },
+      users['finance@blockerp.local']._id,
+    )
+  }
 
   const verificationSeed = [
     { entityType: 'sales_order', entity: orderDocs['SO-DEMO-001'] },
