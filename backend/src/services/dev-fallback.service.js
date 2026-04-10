@@ -12,8 +12,11 @@ export const DEV_FALLBACK_USER = {
   isActive: true,
 }
 
-export const isDevFallbackLogin = (email, password) =>
-  email.toLowerCase() === DEV_FALLBACK_USER.email && password === 'ChangeMe123!'
+export const isDevFallbackLogin = (email, password) => {
+  if (process.env.NODE_ENV === 'production') return false
+  const devPassword = process.env.DEV_FALLBACK_PASSWORD || 'ChangeMe123!'
+  return email.toLowerCase() === DEV_FALLBACK_USER.email && password === devPassword
+}
 
 export const getDevDashboardSummary = () => ({
   kpis: {

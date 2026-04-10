@@ -9,6 +9,9 @@ const require = createRequire(import.meta.url)
 const pdfParseModule = require('pdf-parse')
 const PDFParse = pdfParseModule.PDFParse
 
+let XLSX
+try { XLSX = require('xlsx') } catch { XLSX = null }
+
 async function parsePDF(buffer) {
   // v2 API: constructor takes { data }, then .getText() returns { text, total }
   if (PDFParse && typeof PDFParse === 'function') {
@@ -58,6 +61,16 @@ export const fileExtractorService = {
       return this.extractFromDOCX(buffer)
     }
 
+    // ── Excel (XLS / XLSX) ──────────────────────────────
+    if (
+      type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      type === 'application/vnd.ms-excel' ||
+      ext === 'xlsx' ||
+      ext === 'xls'
+    ) {
+      return this.extractFromExcel(buffer)
+    }
+
     // ── Images (JPEG, PNG, WEBP, BMP, TIFF) ────────────
     if (type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif'].includes(ext)) {
       return this.extractFromImage(buffer)
@@ -69,7 +82,7 @@ export const fileExtractorService = {
     }
 
     throw Object.assign(
-      new Error(`Unsupported file type: ${mimetype || ext}. Accepted: PDF, DOCX, JPG, PNG, WEBP, BMP, TIFF, TXT`),
+      new Error(`Unsupported file type: ${mimetype || ext}. Accepted: PDF, DOCX, XLS, XLSX, JPG, PNG, WEBP, BMP, TIFF, TXT`),
       { statusCode: 400 },
     )
   },
@@ -104,5 +117,25 @@ export const fileExtractorService = {
       logger.warn('file_extractor.ocr_low_confidence', { confidence: data.confidence })
     }
     return data.text
+  },
+
+  async extractFromExcel(buffer) {
+    if (!XLSX) {
+      throw Object.assign(
+        new Error('xlsx package is not installed — run: npm install xlsx'),
+        { statusCode: 500 },
+      )
+    }
+    logger.info('file_extractor.excel_start')
+    const workbook = XLSX.read(buffer, { type: 'buffer' })
+    const lines = []
+    for (const name of workbook.SheetNames) {
+      const sheet = workbook.Sheets[name]
+      const rows = XLSX.utils.sheet_to_csv(sheet, { FS: '\t' })
+      lines.push(rows)
+    }
+    const text = lines.join('\n')
+    logger.info('file_extractor.excel_done', { sheets: workbook.SheetNames.length, chars: text.length })
+    return text
   },
 }

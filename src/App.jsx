@@ -23,9 +23,14 @@ import GSTCompliance from './pages/GSTCompliance'
 import Accounting from './pages/Accounting'
 import TDSManagement from './pages/TDSManagement'
 import DemandForecast from './pages/DemandForecast'
-import DeliveryTracking from './pages/DeliveryTracking'
 import InvoiceScanner from './pages/InvoiceScanner'
 import AIAssistant from './pages/AIAssistant'
+import HRManagement from './pages/HRManagement'
+import Manufacturing from './pages/Manufacturing'
+import ProjectManagement from './pages/ProjectManagement'
+import DocumentManagement from './pages/DocumentManagement'
+import AssetManagement from './pages/AssetManagement'
+import WorkflowApprovals from './pages/WorkflowApprovals'
 import { erpNavigation } from './config/navigation'
 import { authService } from './services/authService'
 import { useStore } from './store/useStore'
@@ -49,9 +54,14 @@ const pageMap = {
   accounting: Accounting,
   tds: TDSManagement,
   'demand-forecast': DemandForecast,
-  'delivery-tracking': DeliveryTracking,
   'invoice-scanner': InvoiceScanner,
   'ai-assistant': AIAssistant,
+  'hr-management': HRManagement,
+  manufacturing: Manufacturing,
+  'project-management': ProjectManagement,
+  'document-management': DocumentManagement,
+  'asset-management': AssetManagement,
+  'workflow-approvals': WorkflowApprovals,
 }
 
 export default function App() {

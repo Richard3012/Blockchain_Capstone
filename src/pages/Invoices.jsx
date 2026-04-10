@@ -7,6 +7,7 @@ import Button from '../components/UI/Button'
 import Modal from '../components/UI/Modal'
 import { invalidateLiveData, useLiveData } from '../hooks/useLiveData'
 import { apiClient } from '../services/api/client'
+import { generateInvoicePDF } from '../services/invoicePdf'
 import { useStore } from '../store/useStore'
 
 export default function Invoices() {
@@ -201,6 +202,9 @@ export default function Invoices() {
                   <td className="py-3 px-6">
                     <div className="flex gap-2">
                       <Button size="sm" variant="secondary" onClick={() => setSelectedInvoice(invoice)}>View</Button>
+                      <Button size="sm" variant="secondary" onClick={() => generateInvoicePDF(invoice)} title="Download PDF">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                      </Button>
                       {canManageInvoices && invoice.status !== 'paid' && (
                         <Button size="sm" onClick={() => handleMarkPaid(invoice)} disabled={busyInvoiceId === invoice.id}>
                           {busyInvoiceId === invoice.id ? 'Saving...' : 'Mark Paid'}
@@ -247,7 +251,7 @@ export default function Invoices() {
               </div>
             )}
             <div className="pt-4 border-t border-border flex gap-2">
-              <Button variant="secondary" onClick={() => addToast('PDF generation remains available from the invoice workflow', 'info')}>Download PDF</Button>
+              <Button variant="secondary" onClick={() => { generateInvoicePDF(selectedInvoice); addToast('PDF downloaded', 'success') }}>Download PDF</Button>
               {canManageInvoices && selectedInvoice.status !== 'paid' && (
                 <Button onClick={() => handleMarkPaid(selectedInvoice)}>Mark as Paid</Button>
               )}

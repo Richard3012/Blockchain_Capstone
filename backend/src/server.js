@@ -4,7 +4,7 @@ import { Server } from 'socket.io'
 
 import app from './app.js'
 import { ensureBootstrapData } from './bootstrap/ensure-bootstrap-data.js'
-import { connectDatabase } from './config/database.js'
+import { connectDatabase, stopDatabase } from './config/database.js'
 import { env } from './config/env.js'
 import { schedulerService } from './services/scheduler.service.js'
 import { telegramService } from './services/telegram.service.js'
@@ -43,9 +43,31 @@ const bootstrap = async () => {
       databaseMode: database.mode,
     })
   })
+
+  // ── Graceful shutdown ───────────────────────────────
+  const shutdown = async (signal) => {
+    logger.info('server.shutdown', { signal })
+    server.close(() => {
+      logger.info('server.closed', { message: 'HTTP server closed' })
+    })
+    io.close()
+    schedulerService.stop?.()
+    try { await stopDatabase() } catch (_) { /* best-effort */ }
+    process.exit(0)
+  }
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('SIGINT', () => shutdown('SIGINT'))
+  process.on('unhandledRejection', (reason) => {
+    logger.error('unhandledRejection', { error: reason?.message || String(reason) })
+  })
+  process.on('uncaughtException', (error) => {
+    logger.error('uncaughtException', { error: error.message, stack: error.stack })
+    process.exit(1)
+  })
 }
 
 bootstrap().catch((error) => {
-  console.error('Failed to start BlockERP API', error)
+  logger.error('bootstrap_failed', { error: error.message, stack: error.stack })
   process.exit(1)
 })

@@ -1,0 +1,169 @@
+import jsPDF from 'jspdf'
+
+/**
+ * Generate and download a professional PDF for an invoice object.
+ * Works with the invoice shape from the Invoices page store.
+ */
+export function generateInvoicePDF(invoice) {
+  const pdf = new jsPDF('p', 'mm', 'a4')
+  const W = 210
+  const margin = 18
+  const contentW = W - margin * 2
+  let y = margin
+
+  const fmt = (v) =>
+    new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(v || 0)
+  const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
+
+  // ── Header band ──
+  pdf.setFillColor(37, 99, 235) // blue-600
+  pdf.rect(0, 0, W, 38, 'F')
+
+  pdf.setTextColor(255, 255, 255)
+  pdf.setFontSize(22)
+  pdf.setFont('helvetica', 'bold')
+  pdf.text('INVOICE', margin, 18)
+
+  pdf.setFontSize(10)
+  pdf.setFont('helvetica', 'normal')
+  pdf.text(`# ${invoice.id || '—'}`, margin, 28)
+
+  pdf.setFontSize(10)
+  pdf.text('BlockERP', W - margin, 14, { align: 'right' })
+  pdf.setFontSize(8)
+  pdf.text('Blockchain-Powered Enterprise Resource Planning', W - margin, 21, { align: 'right' })
+  pdf.text('www.blockerp.io', W - margin, 28, { align: 'right' })
+
+  y = 48
+
+  // ── Invoice metadata ──
+  pdf.setTextColor(100, 100, 100)
+  pdf.setFontSize(8)
+  pdf.setFont('helvetica', 'bold')
+  pdf.text('BILL TO', margin, y)
+  pdf.text('DETAILS', W / 2 + 10, y)
+
+  y += 6
+  pdf.setFont('helvetica', 'normal')
+  pdf.setTextColor(30, 30, 30)
+  pdf.setFontSize(11)
+  pdf.text(invoice.customer || '—', margin, y)
+
+  pdf.setFontSize(9)
+  const details = [
+    ['Invoice #', invoice.id || '—'],
+    ['Order', invoice.order || '—'],
+    ['Store', invoice.store || '—'],
+    ['Issue Date', fmtDate(invoice.issueDate)],
+    ['Due Date', fmtDate(invoice.dueDate)],
+    ['Status', String(invoice.status || '').toUpperCase()],
+  ]
+
+  let dy = y - 4
+  details.forEach(([label, value]) => {
+    pdf.setFont('helvetica', 'normal')
+    pdf.setTextColor(100, 100, 100)
+    pdf.text(label, W / 2 + 10, dy)
+    pdf.setTextColor(30, 30, 30)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text(value, W / 2 + 50, dy)
+    dy += 6
+  })
+
+  y = Math.max(y + 8, dy + 4)
+
+  // ── Divider ──
+  pdf.setDrawColor(220, 220, 220)
+  pdf.line(margin, y, W - margin, y)
+  y += 8
+
+  // ── Line items table (if available) ──
+  const items = invoice.lineItems || invoice.items || []
+  if (items.length > 0) {
+    // Table header
+    pdf.setFillColor(245, 247, 250)
+    pdf.rect(margin, y - 4, contentW, 8, 'F')
+    pdf.setFontSize(8)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setTextColor(80, 80, 80)
+    pdf.text('#', margin + 2, y)
+    pdf.text('Item', margin + 10, y)
+    pdf.text('Qty', margin + contentW - 60, y, { align: 'right' })
+    pdf.text('Rate', margin + contentW - 30, y, { align: 'right' })
+    pdf.text('Amount', margin + contentW, y, { align: 'right' })
+    y += 7
+
+    pdf.setFont('helvetica', 'normal')
+    pdf.setTextColor(30, 30, 30)
+    pdf.setFontSize(9)
+    items.forEach((item, i) => {
+      const name = item.productName || item.name || item.description || `Item ${i + 1}`
+      const qty = item.quantity || item.qty || 1
+      const rate = item.unitPrice || item.price || item.rate || 0
+      const amount = qty * rate
+
+      if (y > 260) { pdf.addPage(); y = margin }
+
+      pdf.text(String(i + 1), margin + 2, y)
+      pdf.text(name.substring(0, 40), margin + 10, y)
+      pdf.text(String(qty), margin + contentW - 60, y, { align: 'right' })
+      pdf.text(fmt(rate), margin + contentW - 30, y, { align: 'right' })
+      pdf.text(fmt(amount), margin + contentW, y, { align: 'right' })
+      y += 6
+    })
+
+    y += 4
+    pdf.setDrawColor(220, 220, 220)
+    pdf.line(margin, y, W - margin, y)
+    y += 6
+  }
+
+  // ── Totals ──
+  const totalX = W - margin
+  pdf.setFontSize(10)
+  pdf.setFont('helvetica', 'normal')
+  pdf.setTextColor(80, 80, 80)
+
+  if (invoice.subtotal != null) {
+    pdf.text('Subtotal:', totalX - 50, y)
+    pdf.text(fmt(invoice.subtotal), totalX, y, { align: 'right' })
+    y += 6
+  }
+  if (invoice.taxAmount != null) {
+    pdf.text('Tax:', totalX - 50, y)
+    pdf.text(fmt(invoice.taxAmount), totalX, y, { align: 'right' })
+    y += 6
+  }
+
+  pdf.setFont('helvetica', 'bold')
+  pdf.setTextColor(30, 30, 30)
+  pdf.setFontSize(12)
+  pdf.text('Total:', totalX - 50, y)
+  pdf.text(fmt(invoice.amount), totalX, y, { align: 'right' })
+  y += 10
+
+  // ── Blockchain hash ──
+  if (invoice.blockchainHash) {
+    pdf.setDrawColor(220, 220, 220)
+    pdf.line(margin, y, W - margin, y)
+    y += 6
+    pdf.setFontSize(8)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setTextColor(100, 100, 100)
+    pdf.text('BLOCKCHAIN VERIFICATION', margin, y)
+    y += 5
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(7)
+    pdf.setTextColor(22, 163, 74)
+    pdf.text(invoice.blockchainHash, margin, y)
+    y += 8
+  }
+
+  // ── Footer ──
+  pdf.setFontSize(7)
+  pdf.setTextColor(160, 160, 160)
+  pdf.text('Generated by BlockERP — Blockchain-anchored ERP System', W / 2, 285, { align: 'center' })
+  pdf.text(`Printed on ${new Date().toLocaleString('en-IN')}`, W / 2, 289, { align: 'center' })
+
+  pdf.save(`${invoice.id || 'Invoice'}.pdf`)
+}

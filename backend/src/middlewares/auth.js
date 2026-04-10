@@ -24,7 +24,13 @@ export const requireAuth = async (req, _res, next) => {
       throw error
     }
 
+    // Dev fallback only allowed in non-production when DB is down
     if (!databaseState.connected) {
+      if (env.isProduction) {
+        const error = new Error('Service temporarily unavailable')
+        error.statusCode = 503
+        throw error
+      }
       if (payload.sub !== DEV_FALLBACK_USER._id || !DEV_FALLBACK_USER.isActive) {
         const error = new Error('User is not authorized')
         error.statusCode = 401

@@ -277,6 +277,11 @@ export const invoiceScannerService = {
       }
     }
 
+    // ── Auto-fill missing fields before validation ───
+    if (!parsed.invoiceNumber) {
+      parsed.invoiceNumber = `SCN-${crypto.randomBytes(3).toString('hex').toUpperCase()}`
+    }
+
     // ── Validate ──────────────────────────────────────
     const validation = await invoiceValidationService.validate(parsed, companyId)
     // If hard errors, return early so user can correct
@@ -285,7 +290,7 @@ export const invoiceScannerService = {
     }
 
     // ── Create invoice ────────────────────────────────
-    const invNumber = parsed.invoiceNumber || `SCN-${crypto.randomBytes(3).toString('hex').toUpperCase()}`
+    const invNumber = parsed.invoiceNumber
     const issueDate = normalizeDate(parsed.invoiceDate) || new Date()
     const dueDate = new Date(issueDate)
     dueDate.setDate(dueDate.getDate() + 30) // Net-30 default

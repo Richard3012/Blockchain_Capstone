@@ -52,6 +52,7 @@ function Set-EnvValue([string]$key, [string]$value) {
   }
 
   $content = Get-Content $envPath -Raw
+  if ($null -eq $content) { $content = '' }
   $line = "$key=$value"
   if ($content -match "(?m)^$key=.*$") {
     $updated = [regex]::Replace($content, "(?m)^$key=.*$", $line)
@@ -89,11 +90,11 @@ if (-not (Wait-ForPort -port 8545 -timeoutSeconds 40)) {
 }
 
 Write-Step 'Deploying ERPRecordAnchor'
-$previousNativeErrorPreference = $PSNativeCommandUseErrorActionPreference
-$PSNativeCommandUseErrorActionPreference = $false
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $deployOutput = & npm.cmd run deploy:anchor -- --network localhost 2>&1 | Out-String
 $deployExitCode = $LASTEXITCODE
-$PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+$ErrorActionPreference = $prevEAP
 if ($deployExitCode -ne 0) {
   throw "ERPRecordAnchor deployment failed with exit code $deployExitCode."
 }

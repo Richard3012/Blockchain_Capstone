@@ -21,4 +21,6 @@ const productSchema = new mongoose.Schema(
   baseSchemaOptions,
 )
 
+productSchema.index({ companyId: 1, currentStock: 1, reorderLevel: 1 })
+
 export const Product = mongoose.model('Product', productSchema)

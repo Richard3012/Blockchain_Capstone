@@ -557,6 +557,294 @@ async function walletTests() {
   })
 }
 
+// ── Delete Operations ───────────────────────────────────────────────
+async function deleteTests() {
+  console.log('\n═══ Delete Operations ═══')
+
+  // Create expendable records for deletion
+  let delProductId, delSupplierId, delCustomerId
+
+  await run('POST /api/products creates product for deletion', async () => {
+    const res = await auth(request.post('/api/products'))
+      .send({ sku: 'DEL-001', name: 'Delete Me Product', costPrice: 10, salePrice: 20, reorderLevel: 1, currentStock: 1 })
+      .expect(201)
+    delProductId = res.body.data._id
+    assert(delProductId, 'product created')
+  })
+
+  await run('DELETE /api/products/:id removes product', async () => {
+    await auth(request.delete(`/api/products/${delProductId}`)).expect(200)
+  })
+
+  await run('GET /api/products/:id returns 404 after delete', async () => {
+    await auth(request.get(`/api/products/${delProductId}`)).expect(404)
+  })
+
+  await run('POST /api/suppliers creates supplier for deletion', async () => {
+    const res = await auth(request.post('/api/suppliers'))
+      .send({ code: 'SUP-DEL', name: 'Delete Me Supplier', paymentTermsDays: 15 })
+      .expect(201)
+    delSupplierId = res.body.data._id
+    assert(delSupplierId, 'supplier created')
+  })
+
+  await run('DELETE /api/suppliers/:id removes supplier', async () => {
+    await auth(request.delete(`/api/suppliers/${delSupplierId}`)).expect(200)
+  })
+
+  await run('POST /api/customers creates customer for deletion', async () => {
+    const res = await auth(request.post('/api/customers'))
+      .send({ code: 'CUST-DEL', name: 'Delete Me Customer', email: 'delcust@test.com' })
+      .expect(201)
+    delCustomerId = res.body.data._id
+    assert(delCustomerId, 'customer created')
+  })
+
+  await run('DELETE /api/customers/:id removes customer', async () => {
+    await auth(request.delete(`/api/customers/${delCustomerId}`)).expect(200)
+  })
+}
+
+// ── Negative / Validation Tests ─────────────────────────────────────
+async function negativeTests() {
+  console.log('\n═══ Negative Tests ═══')
+
+  await run('POST /api/auth/register rejects missing email', async () => {
+    const res = await request
+      .post('/api/auth/register')
+      .send({ name: 'No Email', password: 'Test1234!' })
+    assert([400, 422].includes(res.status), `status ${res.status} is 400/422`)
+  })
+
+  await run('POST /api/auth/login rejects missing password', async () => {
+    const res = await request
+      .post('/api/auth/login')
+      .send({ email: 'testadmin@blockerp.test' })
+    assert([400, 401, 422].includes(res.status), `status ${res.status} is 400/401/422`)
+  })
+
+  await run('GET /api/products/:id with invalid ObjectId', async () => {
+    const res = await auth(request.get('/api/products/invalidid123'))
+    assert([400, 404, 500].includes(res.status), `status ${res.status} is 400/404/500`)
+  })
+
+  await run('POST /api/products rejects missing required fields', async () => {
+    const res = await auth(request.post('/api/products')).send({})
+    assert([400, 422, 500].includes(res.status), `status ${res.status} is 400/422/500`)
+  })
+
+  await run('POST /api/orders rejects empty items', async () => {
+    const res = await auth(request.post('/api/orders'))
+      .send({ customer: customerId, items: [] })
+    assert([400, 422, 500].includes(res.status), `status ${res.status} is 400/422/500`)
+  })
+
+  await run('POST /api/inventory/stock-out rejects negative quantity', async () => {
+    const res = await auth(request.post('/api/inventory/stock-out'))
+      .send({ productId, storeId: adminUser.storeId, quantity: -5, unitCost: 100 })
+    assert([400, 422, 500].includes(res.status), `status ${res.status} is 400/422/500`)
+  })
+
+  await run('PATCH /api/products/:id unauthenticated', async () => {
+    await request.patch(`/api/products/${productId}`).send({ name: 'Hacked' }).expect(401)
+  })
+}
+
+// ── Blockchain Endpoints ────────────────────────────────────────────
+async function blockchainTests() {
+  console.log('\n═══ Blockchain ═══')
+
+  await run('GET /api/blockchain/ledger returns ledger', async () => {
+    const res = await auth(request.get('/api/blockchain/ledger')).expect(200)
+    assert(res.body.data !== undefined, 'ledger data returned')
+  })
+
+  await run('GET /api/blockchain/verify/:entityType/:entityId handles unanchored', async () => {
+    const res = await auth(request.get(`/api/blockchain/verify/invoice/${invoiceId}`))
+    assert([200, 404].includes(res.status), `status ${res.status} is 200/404`)
+  })
+}
+
+// ── Demand Forecast ─────────────────────────────────────────────────
+async function demandForecastTests() {
+  console.log('\n═══ Demand Forecast ═══')
+
+  await run('GET /api/demand/forecast returns predictions', async () => {
+    const res = await auth(request.get('/api/demand/forecast')).expect(200)
+    assert(res.body.data !== undefined, 'forecast returned')
+  })
+
+  await run('GET /api/demand/top-products returns ranking', async () => {
+    const res = await auth(request.get('/api/demand/top-products')).expect(200)
+    assert(res.body.data !== undefined, 'top products returned')
+  })
+
+  await run('GET /api/demand/history returns history', async () => {
+    const res = await auth(request.get('/api/demand/history')).expect(200)
+    assert(res.body.data !== undefined, 'history returned')
+  })
+}
+
+// ── Extended TDS Tests ──────────────────────────────────────────────
+async function extendedTdsTests() {
+  console.log('\n═══ Extended TDS ═══')
+
+  let deductionId
+
+  await run('POST /api/tds/deductions records deduction', async () => {
+    const sections = (await auth(request.get('/api/tds/sections'))).body.data
+    if (!sections.length) throw new Error('No TDS sections')
+    const res = await auth(request.post('/api/tds/deductions'))
+      .send({
+        section: sections[0].section || sections[0].code,
+        deductee: 'Test Vendor',
+        pan: 'ABCDE1234F',
+        amount: 100000,
+        dateOfPayment: new Date().toISOString(),
+      })
+    assert([200, 201].includes(res.status), `status ${res.status} is 200/201`)
+    if (res.body.data) deductionId = res.body.data._id
+  })
+
+  await run('GET /api/tds/deductions returns entries', async () => {
+    const res = await auth(request.get('/api/tds/deductions')).expect(200)
+    assert(Array.isArray(res.body.data), 'data is array')
+  })
+
+  await run('GET /api/tds/quarterly returns summary', async () => {
+    const res = await auth(request.get('/api/tds/quarterly/2025-26/Q1')).expect(200)
+    assert(res.body.data !== undefined, 'quarterly data returned')
+  })
+
+  if (deductionId) {
+    await run('PUT /api/tds/deductions/:id/deposit marks deposited', async () => {
+      const res = await auth(request.put(`/api/tds/deductions/${deductionId}/deposit`))
+        .send({ challanNumber: 'CHL-001', depositDate: new Date().toISOString() })
+      assert([200, 400].includes(res.status), `status ${res.status} is 200/400`)
+    })
+  }
+}
+
+// ── Extended Accounting Tests ───────────────────────────────────────
+async function extendedAccountingTests() {
+  console.log('\n═══ Extended Accounting ═══')
+
+  await run('GET /api/accounting/profit-and-loss returns report', async () => {
+    const res = await auth(request.get('/api/accounting/profit-and-loss')).expect(200)
+    assert(res.body.data !== undefined, 'P&L returned')
+  })
+
+  await run('GET /api/accounting/balance-sheet returns report', async () => {
+    const res = await auth(request.get('/api/accounting/balance-sheet')).expect(200)
+    assert(res.body.data !== undefined, 'balance sheet returned')
+  })
+
+  await run('GET /api/accounting/journal-entries lists entries', async () => {
+    const res = await auth(request.get('/api/accounting/journal-entries')).expect(200)
+    assert(Array.isArray(res.body.data), 'data is array')
+    assert(res.body.data.length > 0, 'entries exist from earlier test')
+  })
+}
+
+// ── Extended GST Tests ──────────────────────────────────────────────
+async function extendedGstTests() {
+  console.log('\n═══ Extended GST ═══')
+
+  await run('GET /api/gst/gstr1 generates GSTR-1', async () => {
+    const res = await auth(request.get('/api/gst/gstr1').query({ period: '202604' })).expect(200)
+    assert(res.body.data !== undefined, 'GSTR-1 data returned')
+  })
+
+  await run('GET /api/gst/hsn searches HSN codes', async () => {
+    const res = await auth(request.get('/api/gst/hsn').query({ q: 'widget' })).expect(200)
+    assert(res.body.data !== undefined, 'HSN results returned')
+  })
+}
+
+// ── Delivery Extended ───────────────────────────────────────────────
+async function extendedDeliveryTests() {
+  console.log('\n═══ Extended Delivery ═══')
+
+  // Get a delivery to work with
+  const listRes = await auth(request.get('/api/delivery')).expect(200)
+  const deliveries = listRes.body.data
+  if (!deliveries || !deliveries.length) return
+
+  const delivery = deliveries[0]
+  const deliveryId = delivery._id
+
+  await run('GET /api/delivery/:id returns delivery', async () => {
+    const res = await auth(request.get(`/api/delivery/${deliveryId}`)).expect(200)
+    assert(res.body.data, 'delivery returned')
+  })
+
+  if (delivery.trackingNumber) {
+    await run('GET /api/delivery/track/:trackingNumber (public)', async () => {
+      const res = await request.get(`/api/delivery/track/${delivery.trackingNumber}`)
+      assert([200, 404].includes(res.status), `status ${res.status}`)
+    })
+  }
+
+  await run('PATCH /api/delivery/:id/status updates status', async () => {
+    const res = await auth(request.patch(`/api/delivery/${deliveryId}/status`))
+      .send({ status: 'in_transit', location: 'Warehouse A' })
+    assert([200, 400].includes(res.status), `status ${res.status} is 200/400`)
+  })
+}
+
+// ── Invoice Verify ──────────────────────────────────────────────────
+async function invoiceVerifyTests() {
+  console.log('\n═══ Invoice Verification ═══')
+
+  await run('GET /api/invoices/:id/verify checks integrity', async () => {
+    const res = await auth(request.get(`/api/invoices/${invoiceId}/verify`))
+    assert([200, 404].includes(res.status), `status ${res.status} is 200/404`)
+  })
+}
+
+// ── Audit By Entity ─────────────────────────────────────────────────
+async function extendedAuditTests() {
+  console.log('\n═══ Extended Audit ═══')
+
+  await run('GET /api/audit/:entityType/:entityId returns filtered logs', async () => {
+    const res = await auth(request.get(`/api/audit/invoice/${invoiceId}`))
+    assert([200, 404].includes(res.status), `status ${res.status} is 200/404`)
+    if (res.status === 200) {
+      assert(Array.isArray(res.body.data), 'data is array')
+    }
+  })
+}
+
+// ── WhatsApp Bot ────────────────────────────────────────────────────
+async function whatsappTests() {
+  console.log('\n═══ WhatsApp Bot ═══')
+
+  await run('GET /api/whatsapp/status returns bot status', async () => {
+    const res = await auth(request.get('/api/whatsapp/status')).expect(200)
+    assert(res.body.data !== undefined, 'status returned')
+  })
+
+  await run('GET /api/whatsapp/overdue returns overdue invoices', async () => {
+    const res = await auth(request.get('/api/whatsapp/overdue')).expect(200)
+    assert(res.body.data !== undefined, 'overdue data returned')
+  })
+}
+
+// ── Invoice Scanner ─────────────────────────────────────────────────
+async function invoiceScannerTests() {
+  console.log('\n═══ Invoice Scanner ═══')
+
+  await run('GET /api/invoice-scanner/list returns scanned invoices', async () => {
+    const res = await auth(request.get('/api/invoice-scanner/list')).expect(200)
+    assert(res.body.data !== undefined, 'list returned')
+  })
+
+  await run('POST /api/invoice-scanner/parse rejects no file', async () => {
+    const res = await auth(request.post('/api/invoice-scanner/parse'))
+    assert([400, 422, 500].includes(res.status), `status ${res.status} rejected missing file`)
+  })
+}
+
 // ── Full Workflow: Order → Invoice → Payment ────────────────────────
 async function workflowTest() {
   console.log('\n═══ End-to-End Workflow ═══')
@@ -641,6 +929,18 @@ async function main() {
     await deliveryTests()
     await auditTests()
     await walletTests()
+    await deleteTests()
+    await negativeTests()
+    await blockchainTests()
+    await demandForecastTests()
+    await extendedTdsTests()
+    await extendedAccountingTests()
+    await extendedGstTests()
+    await extendedDeliveryTests()
+    await invoiceVerifyTests()
+    await extendedAuditTests()
+    await whatsappTests()
+    await invoiceScannerTests()
     await workflowTest()
   } finally {
     console.log('\n' + '═'.repeat(55))

@@ -1,4 +1,13 @@
+import { useStore } from '../../store/useStore.js'
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+
+function showErrorToast(message) {
+  try {
+    const { addToast } = useStore.getState()
+    addToast(message, 'error')
+  } catch (_) { /* store not ready */ }
+}
 
 async function request(path, options = {}) {
   const token = window.sessionStorage.getItem('blockerp-token')
@@ -14,13 +23,22 @@ async function request(path, options = {}) {
       ...options,
     })
   } catch (error) {
-    throw new Error(`Cannot reach BlockERP API at ${API_BASE_URL}. Confirm the backend is running on localhost:4000.`)
+    const msg = 'Cannot reach BlockERP API. Confirm the backend is running.'
+    showErrorToast(msg)
+    throw new Error(msg)
   }
 
   const payload = await response.json().catch(() => ({}))
 
   if (!response.ok) {
-    throw new Error(payload.message || 'API request failed')
+    const msg = payload.message || `Request failed (${response.status})`
+    if (response.status === 401) {
+      window.sessionStorage.removeItem('blockerp-token')
+    }
+    if (response.status !== 401) {
+      showErrorToast(msg)
+    }
+    throw new Error(msg)
   }
 
   return payload.data

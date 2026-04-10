@@ -1,5 +1,6 @@
 import { asyncHandler } from '../middlewares/async-handler.js'
 import { whatsappBotService } from '../services/whatsapp-bot.service.js'
+import { logger } from '../utils/logger.js'
 
 export const whatsappBotController = {
   status: asyncHandler(async (_req, res) => {
@@ -55,7 +56,7 @@ export const whatsappBotController = {
       await whatsappBotService.processIncomingMessage(req.body)
     } catch (err) {
       // Already acknowledged — just log
-      console.error('WhatsApp webhook processing error:', err.message)
+      logger.error('whatsapp_webhook_error', { error: err.message })
     }
   }),
 

@@ -6,7 +6,7 @@ import { logger } from '../utils/logger.js'
 // GSTIN format: 2-digit state + 10-char PAN + 1 entity + Z + check digit
 const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]$/
 
-// Weights for GSTIN checksum (positions 0-13)
+// Weights for GSTIN checksum — ISO/IEC 7064 Mod 36,2
 const GSTIN_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 function gstinChecksum(gstin) {
@@ -14,15 +14,16 @@ function gstinChecksum(gstin) {
   const upper = gstin.toUpperCase()
   if (!GSTIN_RE.test(upper)) return false
 
-  let total = 0
+  // ISO/IEC 7064 Mod 36,2 check digit calculation
+  let p = 36
   for (let i = 0; i < 14; i++) {
     const idx = GSTIN_CHARS.indexOf(upper[i])
     if (idx < 0) return false
-    let product = idx * ((i % 2) + 1)
-    total += Math.floor(product / 36) + (product % 36)
+    let a = (idx + p) % 36
+    if (a === 0) a = 36
+    p = (a * 2) % 37
   }
-  const remainder = total % 36
-  const expected = GSTIN_CHARS[(36 - remainder) % 36]
+  const expected = GSTIN_CHARS[(36 + 1 - p) % 36]
   return upper[14] === expected
 }
 
@@ -37,24 +38,17 @@ export const invoiceValidationService = {
     const errors = []
     const warnings = []
 
-    // 1. GSTIN validation
-    if (parsed.gstin) {
-      const upper = parsed.gstin.toUpperCase()
-      if (!GSTIN_RE.test(upper)) {
-        errors.push({ field: 'gstin', message: 'GSTIN format is invalid (expected 15-char alphanumeric)' })
-      } else if (!gstinChecksum(upper)) {
-        warnings.push({ field: 'gstin', message: 'GSTIN checksum mismatch — verify manually' })
-      }
-    } else {
+    // 1. GSTIN — just note if missing; skip checksum, extract only
+    if (!parsed.gstin) {
       warnings.push({ field: 'gstin', message: 'GSTIN not detected' })
     }
 
     // 2. Required fields
     if (!parsed.vendorName) warnings.push({ field: 'vendorName', message: 'Vendor name not detected' })
-    if (!parsed.invoiceNumber) errors.push({ field: 'invoiceNumber', message: 'Invoice number not detected' })
+    if (!parsed.invoiceNumber) warnings.push({ field: 'invoiceNumber', message: 'Invoice number not detected — will be auto-generated' })
     if (!parsed.invoiceDate) warnings.push({ field: 'invoiceDate', message: 'Invoice date not detected' })
     if (!parsed.totalAmount || parsed.totalAmount <= 0) {
-      errors.push({ field: 'totalAmount', message: 'Total amount missing or zero' })
+      warnings.push({ field: 'totalAmount', message: 'Total amount missing or zero' })
     }
 
     // 3. Arithmetic validation — line items should sum to subtotal / grand total

@@ -1,24 +1,34 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { demandForecastService } from '../services/erpServices'
 import { useStore } from '../store/useStore'
 
 export default function DemandForecast() {
   const addToast = useStore((s) => s.addToast)
+  const searchQuery = useStore((s) => s.searchQuery)
   const [tab, setTab] = useState('forecast')
   const [forecast, setForecast] = useState(null)
   const [topProducts, setTopProducts] = useState([])
   const [loading, setLoading] = useState(false)
+  const [months, setMonths] = useState(6)
+  const [topCount, setTopCount] = useState(10)
+  const [localSearch, setLocalSearch] = useState('')
 
-  useEffect(() => { loadTab() }, [tab])
+  useEffect(() => { loadTab() }, [tab, months, topCount])
 
   const loadTab = async () => {
     setLoading(true)
     try {
-      if (tab === 'forecast') setForecast(await demandForecastService.forecast(null, 6))
-      if (tab === 'top-products') setTopProducts(await demandForecastService.topProducts(10))
+      if (tab === 'forecast') setForecast(await demandForecastService.forecast(null, months))
+      if (tab === 'top-products') setTopProducts(await demandForecastService.topProducts(topCount))
     } catch (e) { addToast(e.message, 'error') }
     setLoading(false)
   }
+
+  const filteredProducts = useMemo(() => {
+    const q = (localSearch || searchQuery || '').toLowerCase()
+    if (!q) return topProducts
+    return topProducts.filter(tp => tp.product?.name?.toLowerCase().includes(q) || tp.product?.sku?.toLowerCase().includes(q))
+  }, [topProducts, localSearch, searchQuery])
 
   const tabs = [
     { id: 'forecast', label: 'Demand Forecast' },
@@ -49,6 +59,13 @@ export default function DemandForecast() {
 
       {!loading && tab === 'forecast' && forecast && (
         <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-text-secondary">Forecast horizon:</label>
+            <select value={months} onChange={(e) => setMonths(Number(e.target.value))}
+              className="px-3 py-1.5 bg-white border border-border rounded-lg text-sm">
+              {[3, 6, 9, 12].map(m => <option key={m} value={m}>{m} months</option>)}
+            </select>
+          </div>
           {forecast.message && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-700">{forecast.message}</div>
           )}
@@ -96,13 +113,23 @@ export default function DemandForecast() {
       )}
 
       {!loading && tab === 'top-products' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-3 items-center">
+            <input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)}
+              placeholder="Search by product name or SKU..."
+              className="w-64 px-4 py-2 bg-white border border-border rounded-lg text-sm" />
+            <select value={topCount} onChange={(e) => setTopCount(Number(e.target.value))}
+              className="px-3 py-1.5 bg-white border border-border rounded-lg text-sm">
+              {[5, 10, 20, 50].map(n => <option key={n} value={n}>Top {n}</option>)}
+            </select>
+          </div>
         <div className="bg-white rounded-xl shadow-sm border border-border overflow-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-text-secondary">
               <tr><th className="text-left p-3">#</th><th className="text-left p-3">Product</th><th className="text-left p-3">SKU</th><th className="text-right p-3">Total Demand (3mo)</th></tr>
             </thead>
             <tbody>
-              {topProducts.map((tp, i) => (
+              {filteredProducts.map((tp, i) => (
                 <tr key={i} className="border-t border-border">
                   <td className="p-3 font-medium">{i + 1}</td>
                   <td className="p-3 font-medium">{tp.product?.name || 'Unknown'}</td>
@@ -110,9 +137,10 @@ export default function DemandForecast() {
                   <td className="p-3 text-right font-bold">{tp.totalDemand}</td>
                 </tr>
               ))}
-              {topProducts.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-text-secondary">No order data yet. Create sales orders to generate demand data.</td></tr>}
+              {filteredProducts.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-text-secondary">No products match your search.</td></tr>}
             </tbody>
           </table>
+        </div>
         </div>
       )}
     </div>

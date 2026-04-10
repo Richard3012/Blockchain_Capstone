@@ -65,4 +65,7 @@ const deliverySchema = new mongoose.Schema(
   baseSchemaOptions,
 )
 
+deliverySchema.index({ companyId: 1, status: 1 })
+deliverySchema.index({ companyId: 1, estimatedDelivery: 1 })
+
 export const Delivery = mongoose.model('Delivery', deliverySchema)

@@ -21,4 +21,6 @@ const userSchema = new mongoose.Schema(
   baseSchemaOptions,
 )
 
+userSchema.index({ companyId: 1, role: 1 })
+
 export const User = mongoose.model('User', userSchema)
