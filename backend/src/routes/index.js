@@ -15,6 +15,7 @@ import invoicesRouter from './invoices.routes.js'
 import invoiceScannerRouter from './invoice-scanner.routes.js'
 import { productRouter, storeRouter, supplierRouter } from './master-data.routes.js'
 import ordersRouter from './orders.routes.js'
+import operationsRouter from './operations.routes.js'
 import procurementRouter from './procurement.routes.js'
 import tdsRouter from './tds.routes.js'
 import walletRouter from './wallet.routes.js'
@@ -31,6 +32,7 @@ router.use('/stores', storeRouter)
 router.use('/inventory', inventoryRouter)
 router.use('/procurement', procurementRouter)
 router.use('/orders', ordersRouter)
+router.use('/', operationsRouter)
 router.use('/invoices', invoicesRouter)
 router.use('/audit', auditRouter)
 router.use('/dashboard', dashboardRouter)

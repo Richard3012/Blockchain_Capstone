@@ -11,9 +11,6 @@ import { telegramService } from './services/telegram.service.js'
 import { logger } from './utils/logger.js'
 
 const bootstrap = async () => {
-  const database = await connectDatabase()
-  await ensureBootstrapData()
-
   const server = http.createServer(app)
   const io = new Server(server, {
     cors: {
@@ -40,11 +37,20 @@ const bootstrap = async () => {
       port: env.port,
       clientOrigin: env.clientOrigins.join(','),
       blockchainRpcUrl: env.blockchainRpcUrl,
-      databaseMode: database.mode,
+      databaseMode: 'booting',
     })
   })
 
-  // ── Graceful shutdown ───────────────────────────────
+  ;(async () => {
+    try {
+      const database = await connectDatabase()
+      await ensureBootstrapData()
+      logger.info('server.bootstrap_ready', { databaseMode: database.mode })
+    } catch (error) {
+      logger.error('server.bootstrap_failed', { error: error.message, stack: error.stack })
+    }
+  })()
+
   const shutdown = async (signal) => {
     logger.info('server.shutdown', { signal })
     server.close(() => {
@@ -52,7 +58,11 @@ const bootstrap = async () => {
     })
     io.close()
     schedulerService.stop?.()
-    try { await stopDatabase() } catch (_) { /* best-effort */ }
+    try {
+      await stopDatabase()
+    } catch {
+      // best effort
+    }
     process.exit(0)
   }
 

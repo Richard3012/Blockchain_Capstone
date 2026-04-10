@@ -124,19 +124,34 @@ export default function AIAssistant() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[
+          { label: 'ERP-Aware', value: 'Live', sub: 'Uses backend data responses' },
+          { label: 'Best Use', value: 'Queries', sub: 'Sales, invoices, stock, finance' },
+          { label: 'Export', value: 'JSON', sub: 'Assistant answers can be exported' },
+          { label: 'Mode', value: 'Analyst', sub: 'Operational ERP assistant' },
+        ].map((card) => (
+          <div key={card.label} className="bg-white rounded-xl p-4 shadow-sm border border-border">
+            <p className="text-xs uppercase tracking-wide text-text-muted">{card.label}</p>
+            <p className="text-xl font-bold text-text-primary mt-1">{card.value}</p>
+            <p className="text-xs text-text-secondary mt-1">{card.sub}</p>
+          </div>
+        ))}
+      </div>
+
       {/* Chat */}
       <div
-        className="bg-white rounded-xl shadow-sm border border-border overflow-hidden"
+        className="bg-white rounded-2xl shadow-sm border border-border overflow-hidden"
         style={{ height: 'calc(100vh - 280px)' }}
       >
         <div className="h-full flex flex-col">
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-gradient-to-b from-white to-slate-50/60">
             {messages.map((msg) => (
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                    msg.role === 'user' ? 'bg-blue text-white' : 'bg-gray-100 text-text-primary'
+                  className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-sm ${
+                    msg.role === 'user' ? 'bg-gradient-to-r from-blue to-indigo-600 text-white' : 'bg-white border border-border text-text-primary'
                   }`}
                 >
                   {msg.role === 'assistant' ? (
@@ -173,7 +188,7 @@ export default function AIAssistant() {
             ))}
             {isTyping && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 rounded-2xl px-4 py-3">
+                <div className="bg-white border border-border rounded-2xl px-4 py-3 shadow-sm">
                   <div className="flex gap-1">
                     <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                     <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -186,13 +201,13 @@ export default function AIAssistant() {
           </div>
 
           {/* Quick Actions */}
-          <div className="px-6 py-3 border-t border-border bg-gray-50">
+          <div className="px-6 py-3 border-t border-border bg-slate-50">
             <div className="flex flex-wrap gap-2">
               {quickActions.map((a, i) => (
                 <button
                   key={i}
                   onClick={() => handleQuickAction(a.query)}
-                  className="px-3 py-1.5 text-xs font-medium bg-white border border-border rounded-full hover:border-blue hover:text-blue transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium bg-white border border-border rounded-full hover:border-blue hover:text-blue hover:bg-blue-50 transition-colors"
                 >
                   {a.label}
                 </button>
@@ -209,13 +224,14 @@ export default function AIAssistant() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder="Ask about sales, invoices, inventory, finances..."
-                className="flex-1 px-4 py-3 bg-gray-50 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue focus:border-transparent"
+                className="flex-1 px-4 py-3 bg-slate-50 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue focus:border-transparent"
                 disabled={isTyping}
               />
-              <Button type="submit" disabled={isTyping || !inputValue.trim()}>
+              <Button type="submit" disabled={isTyping || !inputValue.trim()} className="min-w-[120px]">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
+                Send
               </Button>
             </div>
           </form>

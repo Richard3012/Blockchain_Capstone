@@ -165,10 +165,14 @@ export const verificationService = {
       })
     } else if (expectedHash) {
       logger.warn('verification.tampering_detected', {
+        security: true,
+        detectedAt: new Date().toISOString(),
         entityType,
         entityId: entity._id.toString(),
         expectedHash,
         currentHash,
+        createdBy: entity.createdBy?._id?.toString?.() || entity.createdBy?.toString?.() || null,
+        orderNumber: entity.orderNumber || entity.invoiceNumber || entity.receiptNumber || null,
       })
     }
 

@@ -46,6 +46,23 @@ function Wait-ForHttpOk([string]$url, [int]$timeoutSeconds = 45) {
   return $false
 }
 
+function Wait-ForAnyHttpOk([string[]]$urls, [int]$timeoutSeconds = 45) {
+  $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    foreach ($url in $urls) {
+      try {
+        $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5
+        if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+          return $url
+        }
+      } catch {
+      }
+    }
+    Start-Sleep -Seconds 2
+  }
+  return $null
+}
+
 function Set-EnvValue([string]$key, [string]$value) {
   if (-not (Test-Path $envPath)) {
     New-Item -ItemType File -Path $envPath -Force | Out-Null
@@ -91,10 +108,13 @@ if (-not (Wait-ForPort -port 8545 -timeoutSeconds 40)) {
 
 Write-Step 'Deploying ERPRecordAnchor'
 $prevEAP = $ErrorActionPreference
+$prevNative = $PSNativeCommandUseErrorActionPreference
+$PSNativeCommandUseErrorActionPreference = $false
 $ErrorActionPreference = 'Continue'
 $deployOutput = & npm.cmd run deploy:anchor -- --network localhost 2>&1 | Out-String
 $deployExitCode = $LASTEXITCODE
 $ErrorActionPreference = $prevEAP
+$PSNativeCommandUseErrorActionPreference = $prevNative
 if ($deployExitCode -ne 0) {
   throw "ERPRecordAnchor deployment failed with exit code $deployExitCode."
 }
@@ -110,10 +130,15 @@ if ($match.Success) {
 Write-Step 'Starting backend on 4000'
 Start-ServiceWindow 'BlockERP Backend' 'npm.cmd run server'
 
-if (-not (Wait-ForHttpOk -url 'http://localhost:4000/api/health' -timeoutSeconds 60)) {
-  Write-Step 'Backend did not report healthy on /api/health within 60 seconds.'
+if (-not (Wait-ForPort -port 4000 -timeoutSeconds 40)) {
+  Write-Step 'Backend did not open port 4000 within 40 seconds.'
 } else {
-  Write-Step 'Backend is responding on http://localhost:4000/api/health'
+  $healthyUrl = Wait-ForAnyHttpOk -urls @('http://localhost:4000/api/health', 'http://localhost:4000/health') -timeoutSeconds 30
+  if (-not $healthyUrl) {
+  Write-Step 'Backend did not report healthy on /api/health within 60 seconds.'
+  } else {
+    Write-Step "Backend is responding on $healthyUrl"
+  }
 }
 
 Write-Step 'Starting frontend on 3000'

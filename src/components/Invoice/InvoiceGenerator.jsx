@@ -1,10 +1,9 @@
-import { useState, useRef } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import { useStore } from '../../store/useStore'
 import Button from '../UI/Button'
 import Modal from '../UI/Modal'
 import { QRCodeSVG } from 'qrcode.react'
 import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
 
 export default function InvoiceGenerator({ isOpen, onClose, existingInvoice = null, onSaveInvoice }) {
   const customers = useStore((state) => state.customers)
@@ -12,6 +11,13 @@ export default function InvoiceGenerator({ isOpen, onClose, existingInvoice = nu
   const addToast = useStore((state) => state.addToast)
   
   const invoiceRef = useRef(null)
+  const companyProfile = useMemo(() => ({
+    name: 'BlockERP Retail Pvt. Ltd.',
+    address: '42 Logistics Park, Outer Ring Road, Bengaluru 560037',
+    gstin: '29AABCB4499L1ZP',
+    phone: '+91 80 4400 4400',
+    email: 'billing@blockerp.local',
+  }), [])
   
   const [invoiceData, setInvoiceData] = useState({
     customerId: existingInvoice?.customerId || '',
@@ -120,23 +126,118 @@ export default function InvoiceGenerator({ isOpen, onClose, existingInvoice = nu
   }
 
   const handleDownloadPDF = async () => {
-    if (!invoiceRef.current) return
-    
     try {
-      const canvas = await html2canvas(invoiceRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff'
-      })
-      
-      const imgData = canvas.toDataURL('image/png')
       const pdf = new jsPDF('p', 'mm', 'a4')
-      const imgWidth = 210
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
-      
-      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight)
+      const left = 14
+      const right = 196
+      let y = 16
+
+      const writeLine = (label, value, offset = 0) => {
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(label, left + offset, y)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(String(value || '-'), left + offset + 22, y)
+        y += 5
+      }
+
+      pdf.setFillColor(20, 33, 61)
+      pdf.roundedRect(12, 10, 186, 28, 3, 3, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(20)
+      pdf.text(companyProfile.name, left, 20)
+      pdf.setFontSize(10)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(companyProfile.address, left, 27)
+      pdf.text(`GSTIN: ${companyProfile.gstin}  |  ${companyProfile.phone}  |  ${companyProfile.email}`, left, 33)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(18)
+      pdf.text('TAX INVOICE', right, 20, { align: 'right' })
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(10)
+      pdf.text(`Invoice #: ${invoiceNumber}`, right, 27, { align: 'right' })
+      pdf.text(`Invoice Date: ${invoiceDate}`, right, 32, { align: 'right' })
+      pdf.text(`Due Date: ${invoiceData.dueDate}`, right, 37, { align: 'right' })
+
+      y = 48
+      pdf.setTextColor(32, 33, 36)
+      pdf.setFillColor(245, 247, 251)
+      pdf.roundedRect(12, y, 88, 36, 2, 2, 'F')
+      pdf.roundedRect(110, y, 88, 36, 2, 2, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(11)
+      pdf.text('Billed By', 16, y + 8)
+      pdf.text('Billed To', 114, y + 8)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(10)
+      pdf.text(companyProfile.name, 16, y + 15)
+      pdf.text(companyProfile.address, 16, y + 20, { maxWidth: 80 })
+      pdf.text(`GSTIN: ${companyProfile.gstin}`, 16, y + 30)
+      pdf.text(invoiceData.customerName || 'Customer Name', 114, y + 15)
+      pdf.text(invoiceData.customerAddress || 'Customer address not provided', 114, y + 20, { maxWidth: 80 })
+      pdf.text(invoiceData.customerEmail || 'No customer email', 114, y + 30)
+
+      y += 46
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFillColor(20, 33, 61)
+      pdf.setTextColor(255, 255, 255)
+      pdf.rect(12, y, 186, 8, 'F')
+      pdf.text('Item Description', 16, y + 5.5)
+      pdf.text('SKU', 92, y + 5.5)
+      pdf.text('Qty', 120, y + 5.5)
+      pdf.text('Unit Price', 145, y + 5.5, { align: 'right' })
+      pdf.text('Line Total', 190, y + 5.5, { align: 'right' })
+      y += 10
+
+      pdf.setTextColor(32, 33, 36)
+      pdf.setFont('helvetica', 'normal')
+      invoiceData.items.forEach((item, index) => {
+        const rowTop = y + (index * 10)
+        pdf.setDrawColor(230, 233, 238)
+        pdf.line(12, rowTop + 6.5, 198, rowTop + 6.5)
+        pdf.text(item.productName || 'Item', 16, rowTop + 4.5, { maxWidth: 70 })
+        pdf.text(item.sku || '-', 92, rowTop + 4.5, { maxWidth: 24 })
+        pdf.text(String(item.quantity || 0), 120, rowTop + 4.5)
+        pdf.text(formatCurrency(item.unitPrice || 0), 145, rowTop + 4.5, { align: 'right' })
+        pdf.text(formatCurrency(item.total || 0), 190, rowTop + 4.5, { align: 'right' })
+      })
+
+      y += Math.max(invoiceData.items.length, 1) * 10 + 4
+      pdf.setDrawColor(210, 214, 220)
+      pdf.line(124, y, 198, y)
+      y += 6
+
+      writeLine('Subtotal', formatCurrency(subtotal), 110)
+      if (invoiceData.discount > 0) {
+        writeLine(`Discount (${invoiceData.discount}%)`, `- ${formatCurrency(discountAmount)}`, 110)
+      }
+      writeLine(`Tax (${invoiceData.tax}%)`, formatCurrency(taxAmount), 110)
+      pdf.setDrawColor(20, 33, 61)
+      pdf.line(124, y, 198, y)
+      y += 8
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(13)
+      pdf.text('Grand Total', 126, y)
+      pdf.text(formatCurrency(total), 190, y, { align: 'right' })
+      pdf.setFontSize(10)
+      y += 10
+
+      pdf.setFillColor(245, 247, 251)
+      pdf.roundedRect(12, y, 110, 30, 2, 2, 'F')
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Payment & Notes', 16, y + 8)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(invoiceData.notes || 'Please make payment within 30 days. Contact billing@blockerp.local for account confirmation and GST support.', 16, y + 15, { maxWidth: 102 })
+      pdf.setFont('helvetica', 'italic')
+      pdf.text('This invoice is tracked for ERP integrity verification.', 16, y + 25)
+
+      pdf.setDrawColor(230, 233, 238)
+      pdf.line(12, 275, 198, 275)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(9)
+      pdf.text('Generated by BlockERP Retail ERP | MongoDB operational record | Blockchain verification reference available in ledger view', 105, 281, { align: 'center' })
+
       pdf.save(`${invoiceNumber}.pdf`)
-      
       addToast('Invoice downloaded as PDF', 'success')
     } catch (error) {
       addToast('Failed to generate PDF', 'error')

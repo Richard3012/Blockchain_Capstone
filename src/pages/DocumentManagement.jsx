@@ -1,89 +1,132 @@
-import { useState, useMemo } from 'react'
-import { useStore } from '../store/useStore'
+import { useEffect, useMemo, useState } from 'react'
+
 import Modal from '../components/UI/Modal'
+import { apiClient } from '../services/api/client'
+import { useStore } from '../store/useStore'
 
 const CATEGORIES = ['All', 'Invoice', 'Contract', 'Policy', 'Compliance', 'Report', 'Other']
-
-const initialDocs = [
-  { id: 'DOC-0001', name: 'Vendor Agreement — Steel Corp', category: 'Contract', size: '2.4 MB', uploaded: '2026-03-10', uploadedBy: 'Deepa Joshi', version: 'v3', status: 'approved', tags: ['vendor', 'legal'] },
-  { id: 'DOC-0002', name: 'Q4 2025 Financial Audit Report', category: 'Report', size: '5.1 MB', uploaded: '2026-02-28', uploadedBy: 'Priya Sharma', version: 'v1', status: 'approved', tags: ['audit', 'finance'] },
-  { id: 'DOC-0003', name: 'Warehouse Safety Policy', category: 'Policy', size: '1.1 MB', uploaded: '2026-01-15', uploadedBy: 'Rajesh Kumar', version: 'v2', status: 'approved', tags: ['safety', 'warehouse'] },
-  { id: 'DOC-0004', name: 'GST Return Filing — Mar 2026', category: 'Compliance', size: '890 KB', uploaded: '2026-03-18', uploadedBy: 'Priya Sharma', version: 'v1', status: 'pending', tags: ['gst', 'tax'] },
-  { id: 'DOC-0005', name: 'Purchase Order PO-8832', category: 'Invoice', size: '340 KB', uploaded: '2026-03-20', uploadedBy: 'Suresh Gupta', version: 'v1', status: 'approved', tags: ['procurement'] },
-  { id: 'DOC-0006', name: 'Fleet Insurance Renewal', category: 'Contract', size: '3.8 MB', uploaded: '2026-03-05', uploadedBy: 'Vikram Singh', version: 'v1', status: 'review', tags: ['fleet', 'insurance'] },
-  { id: 'DOC-0007', name: 'FSSAI License Certificate', category: 'Compliance', size: '420 KB', uploaded: '2025-12-01', uploadedBy: 'Deepa Joshi', version: 'v1', status: 'approved', tags: ['compliance', 'fssai'] },
-  { id: 'DOC-0008', name: 'IT Infrastructure Upgrade Plan', category: 'Report', size: '1.7 MB', uploaded: '2026-03-12', uploadedBy: 'Anjali Nair', version: 'v2', status: 'review', tags: ['it', 'infra'] },
-]
 
 export default function DocumentManagement() {
   const searchQuery = useStore((s) => s.searchQuery)
   const addToast = useStore((s) => s.addToast)
-  const [documents, setDocuments] = useState(initialDocs)
+  const user = useStore((s) => s.user)
+  const [documents, setDocuments] = useState([])
   const [catFilter, setCatFilter] = useState('All')
   const [localSearch, setLocalSearch] = useState('')
   const [viewMode, setViewMode] = useState('list')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', category: 'Invoice', tags: '', uploadedBy: '', status: 'pending' })
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ name: '', category: 'Invoice', tags: '', uploadedByName: '', status: 'pending' })
+
+  const loadDocuments = async () => {
+    setLoading(true)
+    try {
+      const rows = await apiClient.get('/documents')
+      setDocuments(Array.isArray(rows) ? rows : [])
+    } catch (error) {
+      addToast(error.message, 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadDocuments()
+  }, [])
 
   const filtered = useMemo(() => {
     const q = (localSearch || searchQuery || '').toLowerCase()
-    return documents.filter((d) => {
-      if (catFilter !== 'All' && d.category !== catFilter) return false
-      return d.name.toLowerCase().includes(q) || d.id.toLowerCase().includes(q) || d.tags.some((t) => t.includes(q))
+    return documents.filter((doc) => {
+      if (catFilter !== 'All' && doc.category !== catFilter) return false
+      const tags = Array.isArray(doc.tags) ? doc.tags : []
+      return doc.name?.toLowerCase().includes(q)
+        || doc.documentNumber?.toLowerCase().includes(q)
+        || tags.some((tag) => tag.toLowerCase().includes(q))
     })
   }, [documents, catFilter, localSearch, searchQuery])
 
   const totalDocs = documents.length
-  const approved = documents.filter((d) => d.status === 'approved').length
-  const pending = documents.filter((d) => d.status === 'pending' || d.status === 'review').length
+  const approved = documents.filter((doc) => doc.status === 'approved').length
+  const pending = documents.filter((doc) => doc.status === 'pending' || doc.status === 'review').length
 
   const openAdd = () => {
     setEditing(null)
-    setForm({ name: '', category: 'Invoice', tags: '', uploadedBy: '', status: 'pending' })
+    setForm({ name: '', category: 'Invoice', tags: '', uploadedByName: user.name, status: 'pending' })
     setShowModal(true)
   }
 
   const openEdit = (doc) => {
     setEditing(doc)
-    setForm({ name: doc.name, category: doc.category, tags: doc.tags.join(', '), uploadedBy: doc.uploadedBy, status: doc.status })
+    setForm({
+      name: doc.name,
+      category: doc.category,
+      tags: Array.isArray(doc.tags) ? doc.tags.join(', ') : '',
+      uploadedByName: doc.uploadedByName || '',
+      status: doc.status,
+    })
     setShowModal(true)
   }
 
-  const handleSave = () => {
-    if (!form.name) { addToast('Document name is required', 'error'); return }
-    const tags = form.tags.split(',').map(t => t.trim()).filter(Boolean)
-    const today = new Date().toISOString().slice(0, 10)
-    if (editing) {
-      setDocuments(prev => prev.map(d => d.id === editing.id ? { ...d, name: form.name, category: form.category, tags, uploadedBy: form.uploadedBy, status: form.status } : d))
-      addToast('Document updated', 'success')
-    } else {
-      const nextId = `DOC-${String(documents.length + 1).padStart(4, '0')}`
-      setDocuments(prev => [...prev, { id: nextId, name: form.name, category: form.category, size: '—', uploaded: today, uploadedBy: form.uploadedBy || 'Current User', version: 'v1', status: form.status, tags }])
-      addToast('Document added', 'success')
+  const handleSave = async () => {
+    if (!form.name.trim()) {
+      addToast('Document name is required', 'error')
+      return
     }
-    setShowModal(false)
+    setSaving(true)
+    const payload = {
+      name: form.name,
+      category: form.category,
+      status: form.status,
+      uploadedByName: form.uploadedByName || user.name,
+      tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+    }
+    try {
+      if (editing) {
+        await apiClient.patch(`/documents/${editing._id}`, payload)
+        addToast('Document updated', 'success')
+      } else {
+        await apiClient.post('/documents', payload)
+        addToast('Document added', 'success')
+      }
+      setShowModal(false)
+      await loadDocuments()
+    } catch (error) {
+      addToast(error.message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleDelete = (id) => {
-    if (!confirm('Delete this document?')) return
-    setDocuments(prev => prev.filter(d => d.id !== id))
-    addToast('Document deleted', 'success')
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this document?')) return
+    try {
+      await apiClient.delete(`/documents/${id}`)
+      addToast('Document deleted', 'success')
+      await loadDocuments()
+    } catch (error) {
+      addToast(error.message, 'error')
+    }
   }
 
-  const handleApprove = (id) => {
-    setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'approved' } : d))
-    addToast('Document approved', 'success')
+  const handleApprove = async (id) => {
+    try {
+      await apiClient.patch(`/documents/${id}`, { status: 'approved' })
+      addToast('Document approved', 'success')
+      await loadDocuments()
+    } catch (error) {
+      addToast(error.message, 'error')
+    }
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Document Management</h1>
-        <p className="text-text-secondary mt-1">Centralized document storage with version control, access management, and compliance audit trails.</p>
+        <p className="text-text-secondary mt-1">Centralized document storage with version control, review status, and MongoDB-backed records.</p>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {[
           { label: 'Total Documents', value: totalDocs, sub: 'In repository' },
@@ -99,70 +142,65 @@ export default function DocumentManagement() {
         ))}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
-        <input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)}
-          placeholder="Search documents..." className="w-64 px-4 py-2 bg-white border border-border rounded-lg text-sm" />
-        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}
-          className="px-4 py-2 bg-white border border-border rounded-lg text-sm">
-          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        <input value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} placeholder="Search documents..." className="w-64 px-4 py-2 bg-white border border-border rounded-lg text-sm" />
+        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} className="px-4 py-2 bg-white border border-border rounded-lg text-sm">
+          {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
         </select>
         <div className="ml-auto flex gap-2 items-center">
           <button onClick={openAdd} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
             + Upload Document
           </button>
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-          {['list', 'grid'].map((m) => (
-            <button key={m} onClick={() => setViewMode(m)}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition ${viewMode === m ? 'bg-white shadow text-text-primary' : 'text-text-muted'}`}>
-              {m === 'list' ? 'List' : 'Grid'}
-            </button>
-          ))}
-        </div>
+            {['list', 'grid'].map((mode) => (
+              <button key={mode} onClick={() => setViewMode(mode)} className={`px-3 py-1 rounded-md text-sm font-medium transition ${viewMode === mode ? 'bg-white shadow text-text-primary' : 'text-text-muted'}`}>
+                {mode === 'list' ? 'List' : 'Grid'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Document List */}
-      {viewMode === 'list' ? (
+      {loading ? (
+        <div className="bg-white rounded-xl p-8 shadow-sm border border-border text-center text-sm text-text-muted">Loading documents...</div>
+      ) : viewMode === 'list' ? (
         <div className="bg-white rounded-xl shadow-sm border border-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-border">
                 <tr>
-                  {['ID', 'Document Name', 'Category', 'Version', 'Size', 'Uploaded By', 'Date', 'Status', 'Actions'].map((h) => (
-                    <th key={h} className="text-left p-3 text-xs font-medium text-text-muted uppercase tracking-wide">{h}</th>
+                  {['ID', 'Document Name', 'Category', 'Version', 'Size', 'Uploaded By', 'Date', 'Status', 'Actions'].map((heading) => (
+                    <th key={heading} className="text-left p-3 text-xs font-medium text-text-muted uppercase tracking-wide">{heading}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((d) => (
-                  <tr key={d.id} className="border-b border-border hover:bg-gray-50 transition">
-                    <td className="p-3 font-mono text-xs text-blue-600">{d.id}</td>
+                {filtered.map((doc) => (
+                  <tr key={doc._id} className="border-b border-border hover:bg-gray-50 transition">
+                    <td className="p-3 font-mono text-xs text-blue-600">{doc.documentNumber}</td>
                     <td className="p-3">
-                      <p className="font-medium text-text-primary">{d.name}</p>
-                      <div className="flex gap-1 mt-1">{d.tags.map((t) =>
-                        <span key={t} className="px-1.5 py-0.5 bg-gray-100 text-text-muted rounded text-[10px]">{t}</span>
+                      <p className="font-medium text-text-primary">{doc.name}</p>
+                      <div className="flex gap-1 mt-1">{(doc.tags || []).map((tag) =>
+                        <span key={tag} className="px-1.5 py-0.5 bg-gray-100 text-text-muted rounded text-[10px]">{tag}</span>
                       )}</div>
                     </td>
-                    <td className="p-3 text-text-secondary">{d.category}</td>
-                    <td className="p-3 font-mono text-xs">{d.version}</td>
-                    <td className="p-3 text-text-secondary">{d.size}</td>
-                    <td className="p-3 text-text-secondary">{d.uploadedBy}</td>
-                    <td className="p-3 text-text-secondary">{d.uploaded}</td>
+                    <td className="p-3 text-text-secondary">{doc.category}</td>
+                    <td className="p-3 font-mono text-xs">{doc.version}</td>
+                    <td className="p-3 text-text-secondary">{doc.sizeLabel || '—'}</td>
+                    <td className="p-3 text-text-secondary">{doc.uploadedByName || '—'}</td>
+                    <td className="p-3 text-text-secondary">{new Date(doc.createdAt).toLocaleDateString('en-IN')}</td>
                     <td className="p-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        d.status === 'approved' ? 'bg-green-100 text-green-700' :
-                        d.status === 'review' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-orange-100 text-orange-700'
-                      }`}>{d.status}</span>
+                        doc.status === 'approved' ? 'bg-green-100 text-green-700' : doc.status === 'review' ? 'bg-yellow-100 text-yellow-700' : 'bg-orange-100 text-orange-700'
+                      }`}>{doc.status}</span>
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-2">
-                        {d.status !== 'approved' && (
-                          <button onClick={() => handleApprove(d.id)} className="text-green-600 hover:text-green-800 text-xs font-medium">Approve</button>
+                        {doc.status !== 'approved' && (
+                          <button onClick={() => handleApprove(doc._id)} className="text-green-600 hover:text-green-800 text-xs font-medium">Approve</button>
                         )}
-                        <button onClick={() => openEdit(d)} className="text-blue-600 hover:text-blue-800 text-xs font-medium">Edit</button>
-                        <button onClick={() => handleDelete(d.id)} className="text-red-600 hover:text-red-800 text-xs font-medium">Delete</button>
+                        <button onClick={() => openEdit(doc)} className="text-blue-600 hover:text-blue-800 text-xs font-medium">Edit</button>
+                        <button onClick={() => handleDelete(doc._id)} className="text-red-600 hover:text-red-800 text-xs font-medium">Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -174,8 +212,8 @@ export default function DocumentManagement() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map((d) => (
-            <div key={d.id} className="bg-white rounded-xl p-5 shadow-sm border border-border hover:shadow-md transition">
+          {filtered.map((doc) => (
+            <div key={doc._id} className="bg-white rounded-xl p-5 shadow-sm border border-border hover:shadow-md transition">
               <div className="flex items-start justify-between">
                 <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
                   <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -183,16 +221,14 @@ export default function DocumentManagement() {
                   </svg>
                 </div>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  d.status === 'approved' ? 'bg-green-100 text-green-700' :
-                  d.status === 'review' ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-orange-100 text-orange-700'
-                }`}>{d.status}</span>
+                  doc.status === 'approved' ? 'bg-green-100 text-green-700' : doc.status === 'review' ? 'bg-yellow-100 text-yellow-700' : 'bg-orange-100 text-orange-700'
+                }`}>{doc.status}</span>
               </div>
-              <p className="font-medium text-text-primary mt-3">{d.name}</p>
-              <p className="text-xs text-text-muted mt-1">{d.category} &bull; {d.version} &bull; {d.size}</p>
-              <p className="text-xs text-text-secondary mt-1">{d.uploadedBy} &bull; {d.uploaded}</p>
-              <div className="flex gap-1 mt-2">{d.tags.map((t) =>
-                <span key={t} className="px-1.5 py-0.5 bg-gray-100 text-text-muted rounded text-[10px]">{t}</span>
+              <p className="font-medium text-text-primary mt-3">{doc.name}</p>
+              <p className="text-xs text-text-muted mt-1">{doc.category} • {doc.version} • {doc.sizeLabel || '—'}</p>
+              <p className="text-xs text-text-secondary mt-1">{doc.uploadedByName || '—'} • {new Date(doc.createdAt).toLocaleDateString('en-IN')}</p>
+              <div className="flex gap-1 mt-2">{(doc.tags || []).map((tag) =>
+                <span key={tag} className="px-1.5 py-0.5 bg-gray-100 text-text-muted rounded text-[10px]">{tag}</span>
               )}</div>
             </div>
           ))}
@@ -204,45 +240,22 @@ export default function DocumentManagement() {
         </div>
       )}
 
-      {/* Features */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-border">
-        <h2 className="text-lg font-semibold text-text-primary mb-4">DMS Capabilities</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {[
-            { title: 'Version History', desc: 'Track all document revisions with change logs, diff comparison, and rollback capability.' },
-            { title: 'Access Control', desc: 'Role-based permissions — restrict view, edit, and download by department or user.' },
-            { title: 'OCR Indexing', desc: 'Automatic text extraction from scanned PDFs and images for full-text search.' },
-            { title: 'Compliance Vault', desc: 'Immutable storage for regulatory documents with blockchain-anchored timestamps.' },
-            { title: 'Automated Workflows', desc: 'Route documents for review and approval with configurable multi-level chains.' },
-            { title: 'Audit Trail', desc: 'Complete log of who accessed, modified, or shared each document and when.' },
-          ].map((item) => (
-            <div key={item.title} className="rounded-lg border border-border bg-background p-4">
-              <p className="font-medium text-text-primary">{item.title}</p>
-              <p className="text-xs text-text-secondary mt-1">{item.desc}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* Upload/Edit Document Modal */}
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Document' : 'Upload Document'} size="md">
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1">Document Name *</label>
-            <input value={form.name} onChange={(e) => setForm({...form, name: e.target.value})}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="Document title" />
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="Document title" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1">Category</label>
-              <select value={form.category} onChange={(e) => setForm({...form, category: e.target.value})}
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm">
-                {CATEGORIES.filter(c => c !== 'All').map(c => <option key={c} value={c}>{c}</option>)}
+              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full px-3 py-2 border border-border rounded-lg text-sm">
+                {CATEGORIES.filter((category) => category !== 'All').map((category) => <option key={category} value={category}>{category}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1">Status</label>
-              <select value={form.status} onChange={(e) => setForm({...form, status: e.target.value})}
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm">
+              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full px-3 py-2 border border-border rounded-lg text-sm">
                 <option value="pending">Pending</option>
                 <option value="review">In Review</option>
                 <option value="approved">Approved</option>
@@ -251,18 +264,16 @@ export default function DocumentManagement() {
           </div>
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1">Tags (comma separated)</label>
-            <input value={form.tags} onChange={(e) => setForm({...form, tags: e.target.value})}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="vendor, legal, finance" />
+            <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="vendor, legal, finance" />
           </div>
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1">Uploaded By</label>
-            <input value={form.uploadedBy} onChange={(e) => setForm({...form, uploadedBy: e.target.value})}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="Your name" />
+            <input value={form.uploadedByName} onChange={(e) => setForm({ ...form, uploadedByName: e.target.value })} className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="Your name" />
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setShowModal(false)} className="px-4 py-2 border border-border rounded-lg text-sm">Cancel</button>
-            <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
-              {editing ? 'Update' : 'Upload Document'}
+            <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+              {saving ? 'Saving...' : editing ? 'Update' : 'Upload Document'}
             </button>
           </div>
         </div>

@@ -15,7 +15,10 @@ export const databaseState = {
 
 async function connectWithUri(uri, mode) {
   mongoose.set('strictQuery', true)
-  await mongoose.connect(uri)
+  await mongoose.connect(uri, {
+    serverSelectionTimeoutMS: 8000,
+    connectTimeoutMS: 8000,
+  })
   databaseState.connected = true
   databaseState.mode = mode
   databaseState.uri = uri

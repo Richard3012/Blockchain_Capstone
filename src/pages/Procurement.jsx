@@ -133,9 +133,19 @@ export default function Procurement() {
         {loadingData ? (
           <p className="text-center text-sm text-text-muted py-12">Loading...</p>
         ) : filtered.length === 0 ? (
-          <p className="text-center text-sm text-text-muted py-12">
-            {tab === 'pos' ? 'No purchase orders yet. Click "+ New Purchase Order" to create one.' : 'No goods receipts recorded yet.'}
-          </p>
+          <div className="py-12 text-center space-y-4">
+            <p className="text-sm text-text-muted">
+              {tab === 'pos' ? 'No purchase orders yet. Create the first procurement record for this store.' : 'No goods receipts recorded yet.'}
+            </p>
+            {tab === 'pos' && (
+              <button
+                onClick={() => { setForm(emptyForm()); setShowCreate(true) }}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+              >
+                + New Purchase Order
+              </button>
+            )}
+          </div>
         ) : tab === 'pos' ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

@@ -254,6 +254,22 @@ export default function AuditLog() {
               <label className="text-sm text-text-muted">Details</label>
               <p className="font-medium text-text-primary">{selectedEntry.details}</p>
             </div>
+            {(selectedEntry.metadata?.actorEmail || selectedEntry.metadata?.actorRole || selectedEntry.metadata?.wallet) && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-sm text-text-muted">Actor Email</label>
+                  <p className="font-medium text-text-primary">{selectedEntry.metadata?.actorEmail || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-text-muted">Actor Role</label>
+                  <p className="font-medium text-text-primary">{selectedEntry.metadata?.actorRole || '-'}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-text-muted">Linked Wallet</label>
+                  <p className="font-mono text-xs text-text-primary break-all">{selectedEntry.metadata?.wallet || '-'}</p>
+                </div>
+              </div>
+            )}
             {selectedEntry.metadata?.changedFields?.length > 0 && (
               <div>
                 <label className="text-sm text-text-muted">Changed Fields</label>

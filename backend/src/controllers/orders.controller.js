@@ -248,6 +248,8 @@ export const ordersController = {
     })
 
     logger.warn('sales.order_modified', {
+      security: true,
+      modifiedAt: new Date().toISOString(),
       orderId: order._id.toString(),
       orderNumber: order.orderNumber,
       actorId: req.user._id.toString(),
@@ -256,6 +258,8 @@ export const ordersController = {
       actorEmail: req.user.email,
       actorWallet: req.user.linkedWalletAddress || null,
       changedFields,
+      before,
+      after,
     })
 
     res.json({ success: true, data: await mapWithVerification(req.user.companyId, order) })

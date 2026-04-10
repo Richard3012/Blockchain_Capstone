@@ -568,6 +568,7 @@ export default function InvoiceScanner() {
 
                 {/* Extract button */}
                 <button
+                  type="button"
                   onClick={file ? handleExtract : () => fileRef.current?.click()}
                   disabled={loading}
                   className={`w-full mt-5 py-4 rounded-xl text-lg font-bold transition-all flex items-center justify-center gap-3 ${
@@ -577,11 +578,11 @@ export default function InvoiceScanner() {
                   }`}
                 >
                   {loading ? (
-                    <><svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Scanning Invoice...</>
+                    <><svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span>Scanning Invoice...</span></>
                   ) : file ? (
-                    <>Scan {'&'} Extract Data</>
+                    <><span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/20">{IC.upload('w-4 h-4')}</span><span>Submit Document For OCR Extraction</span></>
                   ) : (
-                    <>Select a File to Start</>
+                    <><span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/20">{IC.upload('w-4 h-4')}</span><span>Select A File To Start</span></>
                   )}
                 </button>
               </div>
@@ -596,6 +597,7 @@ export default function InvoiceScanner() {
                   className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm font-mono resize-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition"
                 />
                 <button
+                  type="button"
                   onClick={handleExtract}
                   disabled={loading || !rawText.trim()}
                   className={`w-full py-4 rounded-xl text-lg font-bold transition-all flex items-center justify-center gap-3 ${
@@ -605,9 +607,9 @@ export default function InvoiceScanner() {
                   }`}
                 >
                   {loading ? (
-                    <><svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Extracting...</>
+                    <><svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span>Extracting...</span></>
                   ) : (
-                    <>Extract Data {'&'} Preview</>
+                    <><span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/20">{IC.search('w-4 h-4')}</span><span>Submit Text And Preview</span></>
                   )}
                 </button>
               </div>
