@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 
 import Sidebar from './components/Layout/Sidebar'
 import TopBar from './components/Layout/TopBar'
@@ -84,7 +84,7 @@ export default function App() {
   const [authError, setAuthError] = useState('')
   const [authInitialized, setAuthInitialized] = useState(false)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const storedTheme = window.localStorage.getItem('blockerp-theme')
     if (storedTheme === 'dark' || storedTheme === 'light') {
       setTheme(storedTheme)

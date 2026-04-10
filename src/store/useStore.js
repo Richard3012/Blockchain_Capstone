@@ -1,5 +1,17 @@
 import { create } from 'zustand'
 
+const getStoredTheme = () => {
+  if (typeof window === 'undefined') return 'light'
+  const storedTheme = window.localStorage.getItem('blockerp-theme')
+  return storedTheme === 'dark' ? 'dark' : 'light'
+}
+
+const persistTheme = (theme) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem('blockerp-theme', theme)
+  document.documentElement.classList.toggle('theme-dark', theme === 'dark')
+}
+
 export const useStore = create((set, get) => ({
   // Navigation
   currentPage: 'dashboard',
@@ -293,8 +305,11 @@ export const useStore = create((set, get) => ({
   })),
 
   // Appearance settings
-  theme: 'light',
-  setTheme: (theme) => set({ theme }),
+  theme: getStoredTheme(),
+  setTheme: (theme) => {
+    persistTheme(theme)
+    set({ theme })
+  },
   accentColor: '#4361ee',
   setAccentColor: (color) => set({ accentColor: color }),
   density: 'normal',

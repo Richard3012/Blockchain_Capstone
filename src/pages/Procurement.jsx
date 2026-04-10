@@ -4,19 +4,24 @@ import { apiClient } from '../services/api/client'
 import { useStore } from '../store/useStore'
 
 const STATUS_OPTS = ['All', 'draft', 'approved', 'received', 'cancelled']
-const emptyForm = () => ({ supplier: '', items: [{ description: '', quantity: 1, unitPrice: 0 }], notes: '' })
+const createEmptyItem = () => ({ product: '', quantity: 1, unitCost: 0 })
+const emptyForm = (defaultStore = '') => ({ supplier: '', store: defaultStore, items: [createEmptyItem()], notes: '' })
 
 export default function Procurement() {
   const searchQuery = useStore((s) => s.searchQuery)
   const addToast = useStore((s) => s.addToast)
+  const user = useStore((s) => s.user)
 
   const [pos, setPos] = useState([])
   const [receipts, setReceipts] = useState([])
+  const [suppliers, setSuppliers] = useState([])
+  const [products, setProducts] = useState([])
+  const [stores, setStores] = useState([])
   const [tab, setTab] = useState('pos')
   const [statusFilter, setStatusFilter] = useState('All')
   const [showCreate, setShowCreate] = useState(false)
   const [showReceipt, setShowReceipt] = useState(null)
-  const [form, setForm] = useState(emptyForm())
+  const [form, setForm] = useState(emptyForm(user.storeId || ''))
   const [saving, setSaving] = useState(false)
   const [loadingData, setLoadingData] = useState(true)
 
@@ -27,8 +32,16 @@ export default function Procurement() {
         apiClient.get('/procurement/purchase-orders').catch(() => []),
         apiClient.get('/procurement/goods-receipts').catch(() => []),
       ])
+      const [supplierData, productData, storeData] = await Promise.all([
+        apiClient.get('/suppliers').catch(() => []),
+        apiClient.get('/products').catch(() => []),
+        apiClient.get('/stores').catch(() => []),
+      ])
       setPos(Array.isArray(poData) ? poData : [])
       setReceipts(Array.isArray(grData) ? grData : [])
+      setSuppliers(Array.isArray(supplierData) ? supplierData : [])
+      setProducts(Array.isArray(productData) ? productData : [])
+      setStores(Array.isArray(storeData) ? storeData : [])
     } catch { /* ignore */ }
     setLoadingData(false)
   }, [])
@@ -46,18 +59,26 @@ export default function Procurement() {
   }, [pos, receipts, tab, statusFilter, searchQuery])
 
   const handleCreatePO = async () => {
-    if (!form.supplier.trim()) return addToast('Supplier name is required', 'error')
-    if (form.items.some((i) => !i.description.trim() || i.quantity < 1)) return addToast('Fill all item rows', 'error')
+    if (!form.supplier) return addToast('Supplier is required', 'error')
+    if (!form.store) return addToast('Store is required', 'error')
+    if (form.items.some((i) => !i.product || Number(i.quantity) < 1 || Number(i.unitCost) < 0)) {
+      return addToast('Select a product and enter valid quantity/cost for each row', 'error')
+    }
     setSaving(true)
     try {
       await apiClient.post('/procurement/purchase-orders', {
         supplier: form.supplier,
-        items: form.items.map((i) => ({ description: i.description, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) })),
+        store: form.store,
+        items: form.items.map((i) => ({
+          product: i.product,
+          quantity: Number(i.quantity),
+          unitCost: Number(i.unitCost),
+        })),
         notes: form.notes,
       })
       addToast('Purchase Order created', 'success')
       setShowCreate(false)
-      setForm(emptyForm())
+      setForm(emptyForm(user.storeId || ''))
       loadData()
     } catch (err) { addToast(err.message, 'error') }
     setSaving(false)
@@ -74,7 +95,7 @@ export default function Procurement() {
     setSaving(false)
   }
 
-  const addItem = () => setForm((f) => ({ ...f, items: [...f.items, { description: '', quantity: 1, unitPrice: 0 }] }))
+  const addItem = () => setForm((f) => ({ ...f, items: [...f.items, createEmptyItem()] }))
   const removeItem = (idx) => setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))
   const updateItem = (idx, key, val) => setForm((f) => ({ ...f, items: f.items.map((it, i) => i === idx ? { ...it, [key]: val } : it) }))
 
@@ -88,7 +109,7 @@ export default function Procurement() {
           <h1 className="text-2xl font-bold text-text-primary">Procurement</h1>
           <p className="text-text-secondary mt-1">Purchase orders, goods receipts, and supplier management.</p>
         </div>
-        <button onClick={() => { setForm(emptyForm()); setShowCreate(true) }}
+        <button onClick={() => { setForm(emptyForm(user.storeId || '')); setShowCreate(true) }}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">
           + New Purchase Order
         </button>
@@ -139,7 +160,7 @@ export default function Procurement() {
             </p>
             {tab === 'pos' && (
               <button
-                onClick={() => { setForm(emptyForm()); setShowCreate(true) }}
+                onClick={() => { setForm(emptyForm(user.storeId || '')); setShowCreate(true) }}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
               >
                 + New Purchase Order
@@ -162,7 +183,7 @@ export default function Procurement() {
                   return (
                     <tr key={po._id} className="border-b border-border hover:bg-gray-50 transition">
                       <td className="p-3 font-mono text-xs text-blue-600">{po.poNumber || po._id?.slice(-6)}</td>
-                      <td className="p-3 font-medium text-text-primary">{po.supplier}</td>
+                      <td className="p-3 font-medium text-text-primary">{po.supplier?.name || po.supplier || '-'}</td>
                       <td className="p-3 text-text-secondary">{po.items?.length || 0}</td>
                       <td className="p-3 font-semibold text-text-primary">{fmt(total)}</td>
                       <td className="p-3">
@@ -218,20 +239,55 @@ export default function Procurement() {
         <Modal title="New Purchase Order" onClose={() => setShowCreate(false)} size="xl">
           <div className="p-6 space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Supplier Name</label>
-              <input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })}
-                className="w-full border border-border rounded-lg px-3 py-2 text-sm" placeholder="Enter supplier name" />
+              <label className="block text-sm font-medium text-text-primary mb-1">Supplier</label>
+              <select
+                value={form.supplier}
+                onChange={(e) => setForm({ ...form, supplier: e.target.value })}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Select supplier</option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier._id || supplier.id} value={supplier._id || supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1">Store</label>
+              <select
+                value={form.store}
+                onChange={(e) => setForm({ ...form, store: e.target.value })}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Select store</option>
+                {stores.map((store) => (
+                  <option key={store._id || store.id} value={store._id || store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-text-primary mb-2">Line Items</label>
               {form.items.map((item, idx) => (
                 <div key={idx} className="flex gap-2 mb-2">
-                  <input value={item.description} onChange={(e) => updateItem(idx, 'description', e.target.value)}
-                    className="flex-1 border border-border rounded-lg px-3 py-2 text-sm" placeholder="Description" />
+                  <select
+                    value={item.product}
+                    onChange={(e) => updateItem(idx, 'product', e.target.value)}
+                    className="flex-1 border border-border rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">Select product</option>
+                    {products.map((product) => (
+                      <option key={product._id || product.id} value={product._id || product.id}>
+                        {product.name} ({product.sku || 'SKU'})
+                      </option>
+                    ))}
+                  </select>
                   <input type="number" min="1" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
                     className="w-20 border border-border rounded-lg px-3 py-2 text-sm" placeholder="Qty" />
-                  <input type="number" min="0" value={item.unitPrice} onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
-                    className="w-28 border border-border rounded-lg px-3 py-2 text-sm" placeholder="Unit Price" />
+                  <input type="number" min="0" value={item.unitCost} onChange={(e) => updateItem(idx, 'unitCost', e.target.value)}
+                    className="w-28 border border-border rounded-lg px-3 py-2 text-sm" placeholder="Unit Cost" />
                   {form.items.length > 1 && (
                     <button onClick={() => removeItem(idx)} className="px-2 text-red-500 hover:text-red-700 text-lg">×</button>
                   )}
