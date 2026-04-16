@@ -7,6 +7,7 @@ import { ROLES } from '../constants/roles.js'
 import { Product } from '../models/product.model.js'
 import { SalesOrder } from '../models/sales-order.model.js'
 import { InventoryTransaction } from '../models/inventory-transaction.model.js'
+import { AuditLog } from '../models/audit-log.model.js'
 import { auditService } from '../services/audit.service.js'
 import { verificationService } from '../services/verification.service.js'
 import { companyFilter } from '../utils/scope.js'
@@ -146,7 +147,33 @@ export const ordersController = {
       throw error
     }
 
-    res.json({ success: true, data: await mapWithVerification(req.user.companyId, order) })
+    const auditTrail = await AuditLog.find({
+      companyId: req.user.companyId,
+      entityType: 'sales_order',
+      entityId: req.params.id,
+    }).populate('actor').sort({ createdAt: -1 })
+
+    res.json({
+      success: true,
+      data: {
+        ...(await mapWithVerification(req.user.companyId, order)),
+        auditTrail: auditTrail.map((entry) => ({
+          _id: entry._id,
+          action: entry.action,
+          summary: entry.summary,
+          createdAt: entry.createdAt,
+          hash: entry.hash,
+          metadata: entry.metadata || {},
+          actor: entry.actor ? {
+            _id: entry.actor._id,
+            name: entry.actor.name,
+            email: entry.actor.email,
+            role: entry.actor.role,
+            linkedWalletAddress: entry.actor.linkedWalletAddress || null,
+          } : null,
+        })),
+      },
+    })
   }),
 
   updateStatus: asyncHandler(async (req, res) => {

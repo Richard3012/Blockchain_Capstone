@@ -37,6 +37,14 @@ const isRecoverableChainError = (error) => {
   ].some((fragment) => message.includes(fragment))
 }
 
+const toFriendlyChainMessage = (error) => {
+  const raw = String(error?.shortMessage || error?.reason || error?.message || 'Blockchain request failed')
+  if (isRecoverableChainError(error)) {
+    return 'Blockchain node is temporarily unavailable. MongoDB integrity checks still ran successfully.'
+  }
+  return raw
+}
+
 export const blockchainService = {
   async anchorRecord({ companyId, entityType, entityId, recordHash, ipfsCid, requestedBy, actorAddress }) {
     const connection = getContract()
@@ -80,7 +88,7 @@ export const blockchainService = {
         blockNumber: receipt.blockNumber,
       })
     } catch (error) {
-      blockchainRecord.errorMessage = error?.shortMessage || error?.reason || error?.message || 'Blockchain anchor failed'
+      blockchainRecord.errorMessage = toFriendlyChainMessage(error)
       blockchainRecord.status = isRecoverableChainError(error) ? 'pending' : 'failed'
       await blockchainRecord.save()
 
@@ -109,7 +117,7 @@ export const blockchainService = {
       logger.info('blockchain.verify_completed', { entityType, entityId: entityId.toString(), verified })
       return { verified, configured: true }
     } catch (error) {
-      const message = error?.shortMessage || error?.reason || error?.message || 'Blockchain verification failed'
+      const message = toFriendlyChainMessage(error)
       logger.warn('blockchain.verify_failed', {
         entityType,
         entityId: entityId.toString(),

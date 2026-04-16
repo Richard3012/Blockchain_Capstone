@@ -25,6 +25,15 @@ const normalizeBlockchainStatus = (status) => {
   return 'pending'
 }
 
+const normalizeBlockchainError = (message) => {
+  const value = String(message || '')
+  if (!value) return ''
+  if (value.toLowerCase().includes('could not coalesce error')) {
+    return 'Blockchain node is temporarily unavailable. The ERP record is still stored and can be verified from the MongoDB integrity baseline.'
+  }
+  return value
+}
+
 const normalizeInvoiceStatus = (status) => {
   const value = String(status || 'draft').toLowerCase()
   if (['draft', 'issued', 'paid', 'overdue', 'cancelled'].includes(value)) {
@@ -157,11 +166,12 @@ export function useLiveData(...collections) {
               id: b._id,
               type: b.entityType || 'Record',
               entityId: b.entityId || '-',
+              entityLabel: b.entityLabel || b.entityId || '-',
               hash: b.txHash || b.recordHash || b.contentHash || '',
               status: normalizeBlockchainStatus(b.status || (b.verified ? 'confirmed' : 'pending')),
               timestamp: b.createdAt,
               blockNumber: b.blockNumber,
-              errorMessage: b.errorMessage || '',
+              errorMessage: normalizeBlockchainError(b.errorMessage || ''),
             })))
           })
           break

@@ -5,6 +5,7 @@ import { apiClient } from '../services/api/client'
 import Badge from '../components/UI/Badge'
 import Button from '../components/UI/Button'
 import AnimatedNumber from '../components/UI/AnimatedNumber'
+import Modal from '../components/UI/Modal'
 
 export default function Blockchain() {
   useLiveData('blockchain')
@@ -18,6 +19,8 @@ export default function Blockchain() {
   const [hoveredId, setHoveredId] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [displayCount, setDisplayCount] = useState(50)
+  const [verifyResult, setVerifyResult] = useState(null)
+  const [selectedHash, setSelectedHash] = useState(null)
 
   const stats = getBlockchainStats()
 
@@ -27,6 +30,7 @@ export default function Blockchain() {
       || tx.hash.toLowerCase().includes(query)
       || tx.type.toLowerCase().includes(query)
       || tx.entityId.toLowerCase().includes(query)
+      || String(tx.entityLabel || '').toLowerCase().includes(query)
   }), [blockchainTxs, localSearch, searchQuery])
 
   const copyHash = (hash) => {
@@ -34,13 +38,21 @@ export default function Blockchain() {
     addToast('Hash copied to clipboard', 'success')
   }
 
+  const getEntityDisplay = (tx, verification = null) => verification?.recordLabel || tx.entityLabel || tx.entityId
+
   const handleVerify = async (tx) => {
     try {
       const result = await apiClient.get(`/blockchain/verify/${tx.type}/${tx.entityId}`)
+      const display = getEntityDisplay(tx, result)
+      setVerifyResult({
+        tx,
+        result,
+        title: result.verificationStatus === 'failed' ? 'Tampering Detected' : 'Integrity Verified',
+      })
       addToast(
         result.verificationStatus === 'failed'
-          ? `Tampering detected for ${tx.entityId}`
-          : `Integrity verified for ${tx.entityId}`,
+          ? `Tampering detected for ${display}`
+          : `Integrity verified for ${display}`,
         result.verificationStatus === 'failed' ? 'error' : 'success',
       )
     } catch (error) {
@@ -102,16 +114,19 @@ export default function Blockchain() {
                   >
                     <td className="py-3 px-6"><button onClick={(event) => { event.stopPropagation(); copyHash(tx.hash) }} className="font-mono text-sm text-blue hover:underline">{tx.hash.slice(0, 16)}...{tx.hash.slice(-8)}</button></td>
                     <td className="py-3 px-6 text-sm text-text-secondary">{tx.type}</td>
-                    <td className="py-3 px-6 text-sm text-text-secondary">{tx.entityId}</td>
+                    <td className="py-3 px-6 text-sm text-text-secondary">
+                      <div className="font-medium text-text-primary">{tx.entityLabel || tx.entityId}</div>
+                      <div className="text-xs text-text-muted">{tx.entityId}</div>
+                    </td>
                     <td className="py-3 px-6">{getStatusBadge(tx.status)}</td>
                     <td className="py-3 px-6 text-sm text-text-secondary whitespace-nowrap">{new Date(tx.timestamp).toLocaleString()}</td>
                     <td className="py-3 px-6" onClick={(event) => event.stopPropagation()}>
                       <div className="flex flex-wrap gap-2">
                         <Button variant="secondary" size="sm" onClick={() => handleVerify(tx)}>Verify Integrity</Button>
-                        <Button variant="secondary" size="sm" onClick={() => copyHash(tx.hash)}>View Hash</Button>
+                        <Button variant="secondary" size="sm" onClick={() => setSelectedHash(tx)}>View Hash</Button>
                         <Button variant="secondary" size="sm" onClick={() => setActivePage('audit')}>View Audit Trail</Button>
                       </div>
-                      {tx.errorMessage && <p className="mt-2 text-xs text-red">{tx.errorMessage}</p>}
+                      {tx.errorMessage && tx.status === 'failed' && <p className="mt-2 text-xs text-red">{tx.errorMessage}</p>}
                     </td>
                   </tr>
                 )
@@ -125,6 +140,57 @@ export default function Blockchain() {
           {displayCount < filteredTxs.length && <Button variant="secondary" size="sm" onClick={() => setDisplayCount((count) => count + 50)}>Load More</Button>}
         </div>
       </div>
+
+      {verifyResult && (
+        <Modal title={verifyResult.title} onClose={() => setVerifyResult(null)}>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-text-muted">Record</label>
+              <p className="font-medium text-text-primary">{getEntityDisplay(verifyResult.tx, verifyResult.result)}</p>
+              <p className="text-xs text-text-muted mt-1">ID: {verifyResult.tx.entityId}</p>
+            </div>
+            <div>
+              <label className="text-sm text-text-muted">Verification Status</label>
+              <div className="mt-2">
+                {verifyResult.result.verificationStatus === 'failed'
+                  ? <Badge variant="error">Tampering Detected</Badge>
+                  : <Badge variant="success">Integrity Verified</Badge>}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm text-text-muted">Trusted Hash</label>
+              <p className="font-mono text-xs text-text-primary break-all mt-1">{verifyResult.result.expectedHash || '-'}</p>
+            </div>
+            <div>
+              <label className="text-sm text-text-muted">Current Hash</label>
+              <p className="font-mono text-xs text-text-primary break-all mt-1">{verifyResult.result.currentHash || '-'}</p>
+            </div>
+            {verifyResult.result.onChainVerification?.error && verifyResult.result.verificationStatus === 'failed' && (
+              <div className="rounded-lg border border-orange/30 bg-orange/5 px-4 py-3 text-sm text-text-secondary">
+                {verifyResult.result.onChainVerification.error}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {selectedHash && (
+        <Modal title={`Hash Details for ${selectedHash.entityLabel || selectedHash.entityId}`} onClose={() => setSelectedHash(null)}>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-text-muted">Record</label>
+              <p className="font-medium text-text-primary">{selectedHash.entityLabel || selectedHash.entityId}</p>
+            </div>
+            <div>
+              <label className="text-sm text-text-muted">Ledger Hash</label>
+              <p className="font-mono text-xs text-text-primary break-all mt-1">{selectedHash.hash}</p>
+            </div>
+            <div className="flex justify-end">
+              <Button variant="secondary" size="sm" onClick={() => copyHash(selectedHash.hash)}>Copy Hash</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

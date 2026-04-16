@@ -18,11 +18,24 @@ export default function GSTCompliance() {
   const [hsnResults, setHsnResults] = useState([])
   const [loading, setLoading] = useState(false)
 
+  const summaryView = summary || {
+    invoiceCount: 0,
+    totalTaxableValue: 0,
+    totalCGST: 0,
+    totalSGST: 0,
+    totalIGST: 0,
+    totalTax: 0,
+  }
+
   useEffect(() => {
     if (tab === 'summary') loadSummary()
     if (tab === 'gstr1') loadGSTR1()
     if (tab === 'returns') loadReturns()
   }, [tab, period])
+
+  useEffect(() => {
+    loadReturns()
+  }, [])
 
   const loadSummary = async () => {
     setLoading(true)
@@ -86,15 +99,15 @@ export default function GSTCompliance() {
 
       {loading && <div className="text-text-secondary py-8 text-center">Loading...</div>}
 
-      {!loading && tab === 'summary' && summary && (
+      {!loading && tab === 'summary' && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'Invoices', value: summary.invoiceCount },
-            { label: 'Taxable Value', value: fmt(summary.totalTaxableValue) },
-            { label: 'CGST', value: fmt(summary.totalCGST) },
-            { label: 'SGST', value: fmt(summary.totalSGST) },
-            { label: 'IGST', value: fmt(summary.totalIGST) },
-            { label: 'Total Tax', value: fmt(summary.totalTax) },
+            { label: 'Invoices', value: summaryView.invoiceCount },
+            { label: 'Taxable Value', value: fmt(summaryView.totalTaxableValue) },
+            { label: 'CGST', value: fmt(summaryView.totalCGST) },
+            { label: 'SGST', value: fmt(summaryView.totalSGST) },
+            { label: 'IGST', value: fmt(summaryView.totalIGST) },
+            { label: 'Total Tax', value: fmt(summaryView.totalTax) },
           ].map((card) => (
             <div key={card.label} className="bg-white rounded-xl p-4 shadow-sm border border-border">
               <p className="text-xs text-text-secondary">{card.label}</p>

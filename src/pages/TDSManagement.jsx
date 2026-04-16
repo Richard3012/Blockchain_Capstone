@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react'
 import { tdsService } from '../services/erpServices'
 import { useStore } from '../store/useStore'
 
+const getCurrentFinancialYear = () => {
+  const now = new Date()
+  const year = now.getFullYear()
+  return now.getMonth() >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`
+}
+
 export default function TDSManagement() {
   const addToast = useStore((s) => s.addToast)
   const [tab, setTab] = useState('entries')
@@ -11,7 +17,7 @@ export default function TDSManagement() {
   const [loading, setLoading] = useState(false)
   const [showNewDeduction, setShowNewDeduction] = useState(false)
   const [calcResult, setCalcResult] = useState(null)
-  const [fy, setFy] = useState(() => { const y = new Date().getFullYear(); return `${y - 1}-${y}` })
+  const [fy, setFy] = useState(getCurrentFinancialYear)
   const [quarter, setQuarter] = useState(() => Math.ceil((new Date().getMonth() + 1) / 3))
   const [form, setForm] = useState({ section: '', deductee: '', deducteePAN: '', paymentAmount: '', tdsRate: '', tdsAmount: '', paymentDate: new Date().toISOString().split('T')[0] })
 
@@ -19,7 +25,14 @@ export default function TDSManagement() {
   useEffect(() => { if (tab === 'entries') loadEntries(); if (tab === 'quarterly') loadQuarterly() }, [tab, fy, quarter])
 
   const loadSections = async () => { try { setSections(await tdsService.getSections()) } catch (e) { addToast(e.message, 'error') } }
-  const loadEntries = async () => { setLoading(true); try { setEntries(await tdsService.getEntries({ financialYear: fy })) } catch (e) { addToast(e.message, 'error') } setLoading(false) }
+  const loadEntries = async () => {
+    setLoading(true)
+    try {
+      const rows = await tdsService.getEntries(fy ? { financialYear: fy } : {})
+      setEntries(rows)
+    } catch (e) { addToast(e.message, 'error') }
+    setLoading(false)
+  }
   const loadQuarterly = async () => { setLoading(true); try { setQuarterly(await tdsService.getQuarterlySummary(fy, quarter)) } catch (e) { addToast(e.message, 'error') } setLoading(false) }
 
   const handleCalculate = async () => {

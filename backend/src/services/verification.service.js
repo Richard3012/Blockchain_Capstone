@@ -11,6 +11,25 @@ const normalizeDate = (value) => {
 
 const normalizeItems = (items = [], mapper) => items.map(mapper)
 
+const buildRecordLabel = (entityType, entity) => {
+  const identifier = entity?.orderNumber
+    || entity?.invoiceNumber
+    || entity?.receiptNumber
+    || entity?.transactionType
+    || entity?._id?.toString?.()
+    || entity?._id
+
+  const labels = {
+    sales_order: 'Sales Order',
+    invoice: 'Invoice',
+    purchase_order: 'Purchase Order',
+    goods_receipt: 'Goods Receipt',
+    inventory_transaction: 'Inventory Transaction',
+  }
+
+  return identifier ? `${labels[entityType] || 'Record'} ${identifier}` : (labels[entityType] || 'Record')
+}
+
 const canonicalBuilders = {
   sales_order: (entity) => ({
     orderNumber: entity.orderNumber,
@@ -179,6 +198,7 @@ export const verificationService = {
     return {
       entityType,
       entityId: entity._id.toString(),
+      recordLabel: buildRecordLabel(entityType, entity),
       verificationStatus,
       expectedHash,
       currentHash,

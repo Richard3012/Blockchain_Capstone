@@ -37,12 +37,15 @@ export default function Finance() {
     [invoices],
   )
 
+  const fulfilledOrders = useMemo(
+    () => (orders || []).filter((order) => ['fulfilled', 'delivered'].includes(String(order.status).toLowerCase())),
+    [orders],
+  )
+
   const trialBalanceRows = trialBalance?.rows || []
   const totalReceivable = receivables.reduce((sum, invoice) => sum + (invoice.totalAmount || invoice.amount || 0), 0)
   const totalPaid = paidInvoices.reduce((sum, invoice) => sum + (invoice.totalAmount || invoice.amount || 0), 0)
-  const orderRevenue = (orders || [])
-    .filter((order) => ['fulfilled', 'delivered'].includes(String(order.status).toLowerCase()))
-    .reduce((sum, order) => sum + (order.totalAmount || order.total || order.amount || 0), 0)
+  const orderRevenue = fulfilledOrders.reduce((sum, order) => sum + (order.totalAmount || order.total || order.amount || 0), 0)
 
   const openPayables = purchaseOrders.filter((po) =>
     ['draft', 'approved', 'ordered', 'partially_received'].includes(String(po.status).toLowerCase()),
@@ -62,16 +65,16 @@ export default function Finance() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Finance</h1>
-        <p className="text-text-secondary mt-1">Accounts receivable, payable, cash flow, and general ledger derived from live MongoDB ERP data.</p>
+        <p className="text-text-secondary mt-1">Accounts receivable, payable, cash flow, and ledger summaries derived from live MongoDB ERP data.</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           { label: 'Accounts Receivable', value: fmt(totalReceivable), sub: `${receivables.length} open invoices` },
           { label: 'Revenue Collected', value: fmt(totalPaid), sub: `${paidInvoices.length} paid invoices` },
-          { label: 'Fulfilled Orders', value: fmt(orderRevenue), sub: `${(orders || []).filter((order) => ['fulfilled', 'delivered'].includes(String(order.status).toLowerCase())).length} orders` },
+          { label: 'Fulfilled Orders', value: fmt(orderRevenue), sub: `${fulfilledOrders.length} orders` },
           { label: 'Total Invoices', value: (invoices || []).length, sub: 'All time' },
-          { label: 'Journal Entries', value: journalEntries.length, sub: 'Loaded from accounting ledger' },
+          { label: 'Journal Entries', value: journalEntries.length, sub: 'Accounting ledger' },
         ].map((kpi) => (
           <div key={kpi.label} className="bg-white rounded-xl p-4 shadow-sm border border-border">
             <p className="text-xs uppercase tracking-wide text-text-muted">{kpi.label}</p>
@@ -205,7 +208,7 @@ export default function Finance() {
       {tab === 'payables' && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-border">
           <h2 className="text-lg font-semibold text-text-primary mb-2">Accounts Payable</h2>
-          <p className="text-sm text-text-secondary mb-4">Vendor-side obligations derived from live purchase orders and receipts.</p>
+          <p className="text-sm text-text-secondary mb-4">Vendor obligations derived from live purchase orders and receipts.</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               { label: 'Current Payables', value: fmt(totalPayables), sub: `${openPayables.length} open purchase orders` },

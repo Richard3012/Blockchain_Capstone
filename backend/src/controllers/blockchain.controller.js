@@ -18,6 +18,27 @@ const entityModelMap = {
   sales_order: SalesOrder,
 }
 
+const buildEntityLabel = (entityType, entity) => {
+  if (!entity) return null
+
+  const identifier = entity.orderNumber
+    || entity.invoiceNumber
+    || entity.receiptNumber
+    || entity.transactionType
+    || entity._id?.toString?.()
+    || entity._id
+
+  const labels = {
+    invoice: 'Invoice',
+    purchase_order: 'Purchase Order',
+    goods_receipt: 'Goods Receipt',
+    inventory_transaction: 'Inventory Transaction',
+    sales_order: 'Sales Order',
+  }
+
+  return identifier ? `${labels[entityType] || 'Record'} ${identifier}` : (labels[entityType] || 'Record')
+}
+
 export const blockchainController = {
   anchor: asyncHandler(async (req, res) => {
     const Model = entityModelMap[req.params.entityType]
@@ -79,7 +100,23 @@ export const blockchainController = {
   }),
 
   ledger: asyncHandler(async (req, res) => {
-    const data = await blockchainService.getLedger(req.user.companyId)
+    const rows = await blockchainService.getLedger(req.user.companyId)
+    const data = await Promise.all(rows.map(async (row) => {
+      const Model = entityModelMap[row.entityType]
+      if (!Model) {
+        return {
+          ...row.toObject(),
+          entityLabel: row.entityId,
+        }
+      }
+
+      const entity = await Model.findOne({ _id: row.entityId, companyId: req.user.companyId }).lean()
+      return {
+        ...row.toObject(),
+        entityLabel: buildEntityLabel(row.entityType, entity),
+      }
+    }))
+
     logger.info('blockchain.ledger_fetched', {
       companyId: req.user.companyId?.toString?.() || req.user.companyId,
       count: data.length,

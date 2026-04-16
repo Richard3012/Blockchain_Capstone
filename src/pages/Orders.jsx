@@ -98,6 +98,7 @@ export default function Orders() {
   }
 
   const formatDate = (value) => (value ? new Date(value).toLocaleDateString() : '-')
+  const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : '-')
   const formatCurrency = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(value || 0)
 
   const loadOrderDetail = async (order) => {
@@ -305,7 +306,12 @@ export default function Orders() {
             <div><label className="text-sm text-text-muted">Customer</label><p className="font-medium text-text-primary">{selectedOrder.customer}</p></div>
             <div><label className="text-sm text-text-muted">Date</label><p className="font-medium text-text-primary">{formatDate(selectedOrder.date)}</p></div>
             <div><label className="text-sm text-text-muted">Total</label><p className="font-medium text-text-primary">{formatCurrency(selectedOrder.total)}</p></div>
-            <div><label className="text-sm text-text-muted">Integrity</label><div className="mt-1">{getIntegrityBadge(selectedOrder.verificationStatus)}</div></div>
+            <div><label className="text-sm text-text-muted">Integrity</label><div className="mt-1">{getIntegrityBadge(selectedOrderDetail?.verificationStatus || selectedOrder.verificationStatus)}</div></div>
+            {String(selectedOrderDetail?.verificationStatus || selectedOrder.verificationStatus).toLowerCase() === 'failed' && (
+              <div className="rounded-lg border border-red/30 bg-red/5 px-4 py-3 text-sm text-red">
+                Tampering detected. This order no longer matches the originally anchored trusted version.
+              </div>
+            )}
             {selectedOrderDetail?.items?.length > 0 && (
               <div>
                 <label className="text-sm text-text-muted">Items</label>
@@ -323,6 +329,72 @@ export default function Orders() {
               <div>
                 <label className="text-sm text-text-muted">Ledger Hash</label>
                 <p className="font-mono text-xs text-green break-all mt-1">{selectedOrder.blockchainHash}</p>
+              </div>
+            )}
+            {selectedOrderDetail?.auditTrail?.length > 0 && (
+              <div className="space-y-3 border-t border-border pt-4">
+                <div>
+                  <label className="text-sm text-text-muted">Audit Trail</label>
+                  <p className="text-sm text-text-secondary mt-1">This matches the detail style used in Audit Log, so you can see who changed what and when from the order itself.</p>
+                </div>
+                {selectedOrderDetail.auditTrail.map((entry) => (
+                  <div key={entry._id} className="rounded-xl border border-border p-4 space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm text-text-muted">Timestamp</label>
+                        <p className="font-medium text-text-primary">{formatDateTime(entry.createdAt)}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-text-muted">Action</label>
+                        <p className="font-medium text-text-primary">{entry.action}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-text-muted">User</label>
+                        <p className="font-medium text-text-primary">{entry.actor?.name || '-'}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-text-muted">Details</label>
+                        <p className="font-medium text-text-primary">{entry.summary}</p>
+                      </div>
+                    </div>
+                    {(entry.metadata?.actorEmail || entry.metadata?.actorRole || entry.metadata?.wallet || entry.actor?.linkedWalletAddress) && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-sm text-text-muted">Actor Email</label>
+                          <p className="font-medium text-text-primary">{entry.metadata?.actorEmail || entry.actor?.email || '-'}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm text-text-muted">Actor Role</label>
+                          <p className="font-medium text-text-primary">{entry.metadata?.actorRole || entry.actor?.role || '-'}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm text-text-muted">Linked Wallet</label>
+                          <p className="font-mono text-xs text-text-primary break-all">{entry.metadata?.wallet || entry.actor?.linkedWalletAddress || '-'}</p>
+                        </div>
+                      </div>
+                    )}
+                    {entry.hash && (
+                      <div>
+                        <label className="text-sm text-text-muted">Audit Hash</label>
+                        <p className="font-mono text-xs text-green break-all mt-1">{entry.hash}</p>
+                      </div>
+                    )}
+                    {entry.metadata?.changedFields?.length > 0 && (
+                      <div>
+                        <label className="text-sm text-text-muted">Changed Fields</label>
+                        <div className="mt-2 space-y-2">
+                          {entry.metadata.changedFields.map((field) => (
+                            <div key={`${entry._id}-${field}`} className="rounded-lg border border-border p-3 text-sm">
+                              <p className="font-medium text-text-primary">{field}</p>
+                              <p className="text-text-secondary mt-1">Before: {JSON.stringify(entry.metadata.before?.[field])}</p>
+                              <p className="text-text-secondary">After: {JSON.stringify(entry.metadata.after?.[field])}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
             <div className="flex gap-2 pt-4 border-t border-border">
