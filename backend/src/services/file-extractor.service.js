@@ -104,6 +104,23 @@ export const fileExtractorService = {
 
   async extractFromImage(buffer) {
     logger.info('file_extractor.ocr_start')
+
+    // Try multi-pass OCR with preprocessing (if sharp is available)
+    try {
+      const { ocrPreprocessService } = await import('./ocr-preprocess.service.js')
+      if (ocrPreprocessService) {
+        const result = await ocrPreprocessService.multiPassOCR(buffer)
+        logger.info('file_extractor.ocr_multipass_done', {
+          chars: result.text.length,
+          confidence: result.confidence,
+          variant: result.variant,
+        })
+        return result.text
+      }
+    } catch {
+      // Fall through to standard single-pass OCR
+    }
+
     const { data } = await Tesseract.recognize(buffer, 'eng', {
       logger: (m) => {
         if (m.status) logger.debug('file_extractor.ocr_progress', { status: m.status, progress: m.progress })

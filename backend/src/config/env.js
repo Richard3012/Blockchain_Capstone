@@ -36,4 +36,5 @@ export const env = {
   pinataJwt: process.env.PINATA_JWT || '',
   pinataApiKey: process.env.PINATA_API_KEY || '',
   pinataGateway: process.env.PINATA_GATEWAY || '',
+  googleVisionApiKey: process.env.GOOGLE_VISION_API_KEY || '',
 }

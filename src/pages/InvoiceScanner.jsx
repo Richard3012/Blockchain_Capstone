@@ -1,10 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useStore } from '../store/useStore'
 import { invalidateLiveData } from '../hooks/useLiveData'
+import io from 'socket.io-client'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:4000'
 const FILE_ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.txt,.csv'
 const MAX_FILE_SIZE = 10 * 1024 * 1024
+const CONFIDENCE_THRESHOLD = 0.85
+const CONFIDENCE_HARD_BLOCK = 0.5
 
 function getToken() {
   return sessionStorage.getItem('blockerp-token') || localStorage.getItem('blockerp_token') || localStorage.getItem('blockerp-token') || ''
@@ -80,7 +84,9 @@ function getFileCategory(name) {
 /* ── Pipeline stage definitions ───────────────────────── */
 const PIPELINE_STAGES = [
   { id: 'upload', label: 'Upload', icon: IC.upload('w-3.5 h-3.5') },
-  { id: 'extract', label: 'Extract Data', icon: IC.search('w-3.5 h-3.5') },
+  { id: 'preprocess', label: 'Enhance', icon: IC.bolt('w-3.5 h-3.5') },
+  { id: 'extract', label: 'Extract', icon: IC.search('w-3.5 h-3.5') },
+  { id: 'correct', label: 'AI Correct', icon: IC.chip('w-3.5 h-3.5') },
   { id: 'validate', label: 'Validate', icon: IC.checkCircle('w-3.5 h-3.5') },
   { id: 'map', label: 'Map to ERP', icon: IC.link('w-3.5 h-3.5') },
   { id: 'blockchain', label: 'Blockchain', icon: IC.cube('w-3.5 h-3.5') },
@@ -94,6 +100,7 @@ export default function InvoiceScanner() {
 
   // View: 'upload' | 'processing' | 'review' | 'result'
   const [view, setView] = useState('upload')
+  const [activeTab, setActiveTab] = useState('scanner') // 'scanner' | 'history'
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -116,6 +123,7 @@ export default function InvoiceScanner() {
   const [extractedText, setExtractedText] = useState('')
   const [validation, setValidation] = useState(null)
   const [fieldConf, setFieldConf] = useState({})
+  const [scanId, setScanId] = useState(null)
 
   // Result
   const [result, setResult] = useState(null)
@@ -124,7 +132,42 @@ export default function InvoiceScanner() {
 
   // Scan history
   const [history, setHistory] = useState([])
+  const [historyStats, setHistoryStats] = useState(null)
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyFilter, setHistoryFilter] = useState('')
   const [showHistory, setShowHistory] = useState(false)
+
+  // OCR Intelligence Layer data
+  const [ocrCorrections, setOcrCorrections] = useState([])
+  const [financialFlags, setFinancialFlags] = useState([])
+  const [financiallyConsistent, setFinanciallyConsistent] = useState(true)
+  const [ocrDuplicates, setOcrDuplicates] = useState([])
+  const [vendorHints, setVendorHints] = useState([])
+  const [confidenceBreakdown, setConfidenceBreakdown] = useState(null)
+  const [ocrMeta, setOcrMeta] = useState(null)
+
+  // Socket.IO for real-time stage updates
+  const socketRef = useRef(null)
+  useEffect(() => {
+    const socket = io(WS_URL, { transports: ['websocket', 'polling'] })
+    socketRef.current = socket
+
+    socket.on('scanner:stage', (data) => {
+      if (data.scanId && data.stage) {
+        setPipelineStages((prev) =>
+          prev.map((s) => (s.id === data.stage ? { ...s, status: data.status, message: data.message } : s)),
+        )
+      }
+    })
+
+    socket.on('scanner:complete', (data) => {
+      if (data.scanId) {
+        addToast?.(`Invoice ${data.invoiceNumber} processed — ₹${(data.totalAmount || 0).toLocaleString('en-IN')}`, 'success')
+      }
+    })
+
+    return () => { socket.disconnect() }
+  }, [])
 
   /* ── API helper ─────────────────────────────── */
   const apiCall = useCallback(async (method, endpoint, body, isFormData = false) => {
@@ -233,11 +276,28 @@ export default function InvoiceScanner() {
         (data.lineItems || []).map((it, i) => ({
           id: i, description: it.description || '', quantity: it.quantity || 0,
           unitPrice: it.unitPrice || 0, tax: it.tax || 0, amount: it.amount || 0,
+          hsn: it.hsn || '', gstRate: it.gstRate || 0, cgst: it.cgst || 0, sgst: it.sgst || 0, igst: it.igst || 0,
         })),
       )
       setExtractedText(data.extractedText || '')
       setValidation(data.validation || null)
       setFieldConf(data.fieldConfidence || {})
+      setScanId(data.scanId || null)
+
+      // OCR Intelligence Layer data
+      setOcrCorrections(data.ocrCorrections || [])
+      setFinancialFlags(data.financialFlags || [])
+      setFinanciallyConsistent(data.financiallyConsistent !== false)
+      setOcrDuplicates(data.duplicates || [])
+      setVendorHints(data.vendorHints || [])
+      setConfidenceBreakdown(data.confidenceBreakdown || null)
+      setOcrMeta(data.ocrMeta || null)
+      setDateSystemInferred(data.dateSystemInferred || false)
+      setDateSource(data.dateSource || 'extracted')
+      setLineItemMeta(data.lineItemReconstructionMeta || null)
+      setTableReconMeta(data.tableReconstructionMeta || null)
+      setAutoResolutions(data.autoResolutions || {})
+
       setView('review')
       addToast?.('Data extracted — review before posting', 'success')
     } catch (e) {
@@ -268,11 +328,13 @@ export default function InvoiceScanner() {
         fd.append('customer', '000000000000000000000000')
         fd.append('store', '000000000000000000000000')
         fd.append('parsedOverrides', JSON.stringify(overrides))
+        if (scanId) fd.append('scanId', scanId)
         data = await apiCall('POST', '/invoice-scanner/process', fd, true)
       } else {
         data = await apiCall('POST', '/invoice-scanner/process', {
           rawText, customer: '000000000000000000000000',
           store: '000000000000000000000000', parsedOverrides: overrides,
+          scanId,
         })
       }
 
@@ -301,7 +363,12 @@ export default function InvoiceScanner() {
   }
 
   /* ── Reject ────────────────────────────────── */
-  const handleReject = () => {
+  const handleReject = async () => {
+    if (scanId) {
+      try {
+        await apiCall('POST', `/invoice-scanner/reject/${scanId}`, { reason: 'Rejected by user' })
+      } catch { /* ignore */ }
+    }
     addToast?.('Invoice rejected', 'warning')
     reset()
   }
@@ -330,12 +397,41 @@ export default function InvoiceScanner() {
   }
 
   /* ── Fetch scan history ─────────────────────── */
-  const fetchHistory = async () => {
+  const fetchHistory = async (page = 1, status = '') => {
     try {
-      const data = await apiCall('GET', '/invoice-scanner/list?limit=10')
-      setHistory(data.invoices || data.items || [])
+      const qs = `limit=15&page=${page}${status ? `&status=${status}` : ''}`
+      const data = await apiCall('GET', `/invoice-scanner/list?${qs}`)
+      setHistory(data.scans || data.invoices || [])
+      setHistoryStats(data.stats || null)
+      setHistoryPage(page)
     } catch { /* ignore */ }
   }
+
+  /* ── Retry a failed scan ─────────────────────── */
+  const handleRetry = async (retryId) => {
+    try {
+      setLoading(true)
+      const data = await apiCall('POST', `/invoice-scanner/retry/${retryId}`, {
+        customer: '000000000000000000000000',
+        store: '000000000000000000000000',
+      })
+      if (data.validation && !data.validation.valid) {
+        setValidation(data.validation)
+        setError('Retry produced validation errors')
+        addToast?.('Retry validation errors', 'error')
+      } else {
+        setResult(data)
+        setView('result')
+        setActiveTab('scanner')
+        invalidateLiveData('invoices', 'inventory', 'orders', 'customers', 'audit', 'blockchain')
+        addToast?.('Retry succeeded — invoice created!', 'success')
+      }
+    } catch (e) {
+      addToast?.(e.message, 'error')
+    }
+    setLoading(false)
+  }
+
   useEffect(() => { fetchHistory() }, [])
 
   /* ── Reset ──────────────────────────────────── */
@@ -344,7 +440,11 @@ export default function InvoiceScanner() {
     setFields({}); setLineItems([]); setExtractedText('')
     setValidation(null); setFieldConf({}); setResult(null)
     setVerifyResult(null); setError(null); setUploadProgress(0)
-    setDragging(false); setPipelineStages(PIPELINE_STAGES.map((s) => ({ ...s, status: 'pending' })))
+    setDragging(false); setScanId(null)
+    setOcrCorrections([]); setFinancialFlags([]); setFinanciallyConsistent(true)
+    setOcrDuplicates([]); setVendorHints([]); setConfidenceBreakdown(null); setOcrMeta(null)
+    setDateSystemInferred(false); setLineItemMeta(null); setTableReconMeta(null); setDateSource('extracted'); setAutoResolutions({})
+    setPipelineStages(PIPELINE_STAGES.map((s) => ({ ...s, status: 'pending' })))
   }
 
   /* ── Field helpers ──────────────────────────── */
@@ -357,6 +457,61 @@ export default function InvoiceScanner() {
   const avgConf = Object.keys(fieldConf).length > 0
     ? Object.values(fieldConf).reduce((s, f) => s + f.confidence, 0) / Object.keys(fieldConf).length
     : 0
+
+  // OCR Intelligence additional state
+  const [dateSystemInferred, setDateSystemInferred] = useState(false)
+  const [dateSource, setDateSource] = useState('extracted')
+  const [lineItemMeta, setLineItemMeta] = useState(null)
+  const [tableReconMeta, setTableReconMeta] = useState(null)
+  const [autoResolutions, setAutoResolutions] = useState({})
+
+  // Determine if "Accept & Post" should be enabled — AUTONOMOUS ENFORCEMENT
+  // Fields auto-resolved by intelligence pipeline are trusted — no manual block
+  const hasValidationErrors = (validation?.errors || []).filter((e) => {
+    // Don't count errors for fields that were auto-resolved with high confidence
+    if (e.field === 'gstin' && autoResolutions.gstin?.resolved && fields.gstin) return false
+    if (e.field === 'invoiceDate' && autoResolutions.invoiceDate?.resolved && fields.invoiceDate) return false
+    if (e.field === 'lineItems' && autoResolutions.lineItems?.resolved) return false
+    if (e.field === 'confidence') {
+      // Only block on confidence if the field isn't auto-resolved
+      const confFields = (e.message || '').match(/vendorName|invoiceNumber|totalAmount|gstin/g) || []
+      const unresolvedConf = confFields.filter((f) => !fieldConf[f]?.autoResolved)
+      return unresolvedConf.length > 0
+    }
+    return true
+  }).length > 0
+  const hasLowConfidenceCritical = Object.entries(fieldConf)
+    .some(([key, val]) => ['vendorName', 'invoiceNumber', 'totalAmount', 'gstin'].includes(key)
+      && val.confidence < CONFIDENCE_HARD_BLOCK && !val.autoResolved)
+  const missingRequiredFields = !fields.vendorName || !fields.totalAmount || fields.totalAmount <= 0
+  const missingGSTIN = !fields.gstin && !autoResolutions.gstin?.resolved
+  const missingDate = !fields.invoiceDate && !autoResolutions.invoiceDate?.resolved
+  const hasExactDuplicate = ocrDuplicates.some((d) => d.type === 'exact')
+  const hasInvalidLineItems = lineItems.some((it) => (it.quantity <= 0 || it.unitPrice <= 0) && it.amount > 0) && !autoResolutions.lineItems?.resolved
+  const hasFinancialInconsistency = !financiallyConsistent && financialFlags.some((f) => f.severity === 'error') && !autoResolutions.financials?.resolved
+
+  // Count how many issues were auto-resolved
+  const resolvedCount = Object.values(autoResolutions).filter((r) => r.resolved).length
+  const autoResolvedFields = Object.entries(autoResolutions).filter(([, r]) => r.resolved).map(([k]) => k)
+
+  // ALL conditions must pass for posting
+  const postingBlockers = []
+  if (hasValidationErrors) postingBlockers.push('Validation errors must be resolved')
+  if (hasLowConfidenceCritical) postingBlockers.push('Critical fields have very low AI confidence (<50%) — verify manually')
+  if (missingRequiredFields) postingBlockers.push('Required fields missing (vendor name, total amount)')
+  if (missingGSTIN) postingBlockers.push('GSTIN is required for GST compliance — enter manually')
+  if (missingDate) postingBlockers.push('Invoice date is required — enter manually')
+  if (hasExactDuplicate) postingBlockers.push('Exact duplicate invoice detected — cannot post')
+  if (hasInvalidLineItems) postingBlockers.push('Line items have qty=0 or unit price=0 with non-zero amounts — fix before posting')
+  if (hasFinancialInconsistency) postingBlockers.push('Financial inconsistency detected — amounts do not reconcile')
+
+  const canPost = postingBlockers.length === 0
+
+  // Fields needing manual review (confidence between HARD_BLOCK and THRESHOLD, not auto-resolved)
+  const fieldsNeedingReview = Object.entries(fieldConf)
+    .filter(([key, val]) => ['vendorName', 'invoiceNumber', 'totalAmount', 'gstin'].includes(key) &&
+      val.confidence >= CONFIDENCE_HARD_BLOCK && val.confidence < CONFIDENCE_THRESHOLD && !val.autoResolved)
+    .map(([key]) => key)
 
   /* ════════════════════ RENDER ════════════════════ */
   return (
@@ -374,11 +529,16 @@ export default function InvoiceScanner() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => { setShowHistory(!showHistory); if (!showHistory) fetchHistory() }}
-            className="px-4 py-2 rounded-xl text-sm font-medium border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition flex items-center gap-2">
-            {IC.clipboard('w-4 h-4')} {showHistory ? 'Hide' : 'Scan'} History
+          <button onClick={() => { setActiveTab('scanner'); setShowHistory(false) }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium border-2 transition flex items-center gap-2 ${activeTab === 'scanner' ? 'bg-blue-50 text-blue-700 border-blue-400' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50'}`}>
+            {IC.docText('w-4 h-4')} Scanner
           </button>
-          {view !== 'upload' && (
+          <button onClick={() => { setActiveTab('history'); setShowHistory(true); fetchHistory() }}
+            className={`px-4 py-2 rounded-xl text-sm font-medium border-2 transition flex items-center gap-2 ${activeTab === 'history' ? 'bg-blue-50 text-blue-700 border-blue-400' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50'}`}>
+            {IC.clipboard('w-4 h-4')} Scan History
+            {historyStats?.total > 0 && <span className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-bold">{historyStats.total}</span>}
+          </button>
+          {view !== 'upload' && activeTab === 'scanner' && (
             <button onClick={reset}
               className="px-4 py-2 rounded-xl text-sm font-medium bg-gray-100 hover:bg-gray-200 transition">
               ↻ New Scan
@@ -432,10 +592,29 @@ export default function InvoiceScanner() {
         </div>
       )}
 
-      {/* ── Scan History Panel ───────────────────── */}
-      {showHistory && (
-        <div className="bg-white rounded-2xl shadow-sm border border-border p-5">
-          <h3 className="font-semibold text-text-primary mb-3 flex items-center gap-2">{IC.clipboard('w-4 h-4')} Recent Scans</h3>
+      {/* ── Scan History Tab ─────────────────────── */}
+      {activeTab === 'history' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-border p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <h3 className="font-semibold text-text-primary flex items-center gap-2">{IC.clipboard('w-4 h-4')} Scan History</h3>
+            <div className="flex gap-2">
+              {historyStats && (
+                <div className="flex gap-2 text-xs">
+                  <span className="px-2 py-1 bg-green-50 text-green-700 rounded-lg font-medium">{historyStats.processed} Processed</span>
+                  <span className="px-2 py-1 bg-red-50 text-red-700 rounded-lg font-medium">{historyStats.failed} Failed</span>
+                  <span className="px-2 py-1 bg-yellow-50 text-yellow-700 rounded-lg font-medium">{historyStats.pending} Pending</span>
+                </div>
+              )}
+              <select value={historyFilter} onChange={(e) => { setHistoryFilter(e.target.value); fetchHistory(1, e.target.value) }}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1">
+                <option value="">All Statuses</option>
+                <option value="processed">Processed</option>
+                <option value="failed">Failed</option>
+                <option value="rejected">Rejected</option>
+                <option value="extracted">Extracted</option>
+              </select>
+            </div>
+          </div>
           {history.length > 0 ? (
             <div className="overflow-auto">
               <table className="w-full text-sm">
@@ -444,28 +623,70 @@ export default function InvoiceScanner() {
                     <th className="text-left p-2.5 rounded-l-lg">Invoice #</th>
                     <th className="text-left p-2.5">Vendor</th>
                     <th className="text-right p-2.5">Amount</th>
+                    <th className="text-center p-2.5">Confidence</th>
                     <th className="text-center p-2.5">Status</th>
-                    <th className="text-left p-2.5 rounded-r-lg">Date</th>
+                    <th className="text-left p-2.5">Date</th>
+                    <th className="text-center p-2.5 rounded-r-lg">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((inv) => (
-                    <tr key={inv._id} className="border-t border-border hover:bg-gray-50">
-                      <td className="p-2.5 font-medium text-blue-700">{inv.invoiceNumber}</td>
-                      <td className="p-2.5 text-text-secondary">{inv.vendorName || '—'}</td>
-                      <td className="p-2.5 text-right font-medium">{fmt(inv.totalAmount)}</td>
-                      <td className="p-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          inv.verificationStatus === 'verified' ? 'bg-green-100 text-green-700' :
-                          inv.status === 'paid' ? 'bg-blue-100 text-blue-700' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>{inv.verificationStatus || inv.status}</span>
-                      </td>
-                      <td className="p-2.5 text-text-secondary text-xs">{new Date(inv.createdAt || inv.issueDate).toLocaleDateString('en-IN')}</td>
-                    </tr>
-                  ))}
+                  {history.map((scan) => {
+                    const invNum = scan.extractedData?.invoiceNumber || scan.invoiceNumber || '—'
+                    const vendor = scan.extractedData?.vendorName || scan.vendorName || '—'
+                    const amount = scan.extractedData?.totalAmount || scan.totalAmount || 0
+                    const statusColors = {
+                      processed: 'bg-green-100 text-green-700',
+                      failed: 'bg-red-100 text-red-700',
+                      rejected: 'bg-gray-100 text-gray-600',
+                      extracted: 'bg-blue-100 text-blue-700',
+                      validated: 'bg-blue-100 text-blue-700',
+                      pending: 'bg-yellow-100 text-yellow-700',
+                      extracting: 'bg-blue-100 text-blue-700',
+                      posting: 'bg-indigo-100 text-indigo-700',
+                    }
+                    return (
+                      <tr key={scan._id} className="border-t border-border hover:bg-gray-50">
+                        <td className="p-2.5 font-medium text-blue-700">{invNum}</td>
+                        <td className="p-2.5 text-text-secondary">{vendor}</td>
+                        <td className="p-2.5 text-right font-medium">{fmt(amount)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            scan.confidence === 'high' ? 'bg-green-100 text-green-700' :
+                            scan.confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>{scan.confidence || '—'}</span>
+                        </td>
+                        <td className="p-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[scan.status] || 'bg-gray-100 text-gray-600'}`}>{scan.status}</span>
+                        </td>
+                        <td className="p-2.5 text-text-secondary text-xs">{new Date(scan.createdAt).toLocaleDateString('en-IN')}</td>
+                        <td className="p-2.5 text-center">
+                          {['failed', 'rejected'].includes(scan.status) && (
+                            <button onClick={() => handleRetry(scan._id)} disabled={loading}
+                              className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-100 font-medium transition">
+                              {IC.refresh('w-3 h-3')} Retry
+                            </button>
+                          )}
+                          {scan.status === 'processed' && scan.blockchainTxHash && (
+                            <span className="text-xs text-green-600 font-medium flex items-center justify-center gap-1">{IC.checkCircle('w-3 h-3')} Verified</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
+              {/* Pagination */}
+              <div className="flex justify-between items-center mt-3 text-xs text-gray-500">
+                <span>{historyStats?.total || history.length} total scans</span>
+                <div className="flex gap-2">
+                  <button onClick={() => fetchHistory(historyPage - 1, historyFilter)} disabled={historyPage <= 1}
+                    className="px-3 py-1 border rounded-lg disabled:opacity-30 hover:bg-gray-50">← Prev</button>
+                  <span className="px-2 py-1">Page {historyPage}</span>
+                  <button onClick={() => fetchHistory(historyPage + 1, historyFilter)} disabled={history.length < 15}
+                    className="px-3 py-1 border rounded-lg disabled:opacity-30 hover:bg-gray-50">Next →</button>
+                </div>
+              </div>
             </div>
           ) : (
             <p className="text-sm text-gray-400 text-center py-6">No scanned invoices yet</p>
@@ -476,7 +697,7 @@ export default function InvoiceScanner() {
       {/* ══════════════════════════════════════════ */}
       {/*  VIEW: UPLOAD                              */}
       {/* ══════════════════════════════════════════ */}
-      {view === 'upload' && (
+      {activeTab === 'scanner' && view === 'upload' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main upload area */}
           <div className="lg:col-span-2 space-y-4">
@@ -641,13 +862,15 @@ export default function InvoiceScanner() {
             <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 p-5">
               <h3 className="font-semibold text-blue-800 mb-2 text-sm flex items-center gap-1.5">{IC.chip('w-4 h-4')} AI Processing Pipeline</h3>
               <ul className="space-y-1.5 text-xs text-blue-700">
-                <li>• Tesseract OCR for images</li>
-                <li>• Regex + NLP field extraction</li>
-                <li>• GSTIN checksum validation</li>
-                <li>• Duplicate invoice detection</li>
-                <li>• Fuzzy vendor auto-matching</li>
-                <li>• Auto inventory stock-in</li>
-                <li>• Journal entry creation</li>
+                <li>• Multi-pass OCR (4 image variants)</li>
+                <li>• Deskew + denoise + contrast enhance</li>
+                <li>• Regex + semantic field extraction</li>
+                <li>• Line item reconstruction engine</li>
+                <li>• Financial consistency auto-correction</li>
+                <li>• Confidence Scoring 2.0 (4-factor)</li>
+                <li>• Self-healing OCR artifact cleanup</li>
+                <li>• Vendor template learning</li>
+                <li>• GSTIN checksum + duplicate detection</li>
                 <li>• Blockchain hash anchoring</li>
               </ul>
             </div>
@@ -668,7 +891,7 @@ export default function InvoiceScanner() {
       {/* ══════════════════════════════════════════ */}
       {/*  VIEW: PROCESSING (animated)               */}
       {/* ══════════════════════════════════════════ */}
-      {view === 'processing' && (
+      {activeTab === 'scanner' && view === 'processing' && (
         <div className="bg-white rounded-2xl shadow-sm border border-border p-12 text-center">
           <svg className="w-16 h-16 animate-spin mx-auto text-blue-500 mb-6" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
@@ -682,7 +905,7 @@ export default function InvoiceScanner() {
       {/* ══════════════════════════════════════════ */}
       {/*  VIEW: REVIEW                              */}
       {/* ══════════════════════════════════════════ */}
-      {view === 'review' && (
+      {activeTab === 'scanner' && view === 'review' && (
         <div className="space-y-5">
 
           {/* Confidence & Alert badges */}
@@ -709,22 +932,164 @@ export default function InvoiceScanner() {
             )}
           </div>
 
-          {/* Smart Alerts */}
-          {(validation?.errors?.length > 0 || validation?.warnings?.length > 0) && (
+          {/* Smart Alerts — Actionable (click to focus field) */}
+          {(validation?.errors?.length > 0 || validation?.warnings?.length > 0 || dateSystemInferred || resolvedCount > 0) && (
             <div className="bg-white rounded-2xl border-2 border-orange-200 p-5 space-y-2">
               <h3 className="text-sm font-bold text-orange-800 flex items-center gap-2">{IC.bell('w-4 h-4')} Smart Alerts</h3>
-              {validation.errors?.map((e, i) => (
-                <div key={`e${i}`} className="flex items-start gap-2 p-2.5 bg-red-50 rounded-xl">
+              {/* Auto-resolved successes (green) */}
+              {autoResolvedFields.map((field) => (
+                <div key={`ar-${field}`} className="w-full flex items-start gap-2 p-2.5 bg-emerald-50 rounded-xl">
+                  <span className="text-emerald-500 mt-0.5">{IC.checkCircle('w-4 h-4')}</span>
+                  <div className="flex-1">
+                    <span className="text-xs font-bold text-emerald-800">{field}:</span>{' '}
+                    <span className="text-xs text-emerald-700">Auto-resolved via {(autoResolutions[field]?.source || 'intelligence').replace(/_/g, ' ')}</span>
+                  </div>
+                  <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium">Resolved</span>
+                </div>
+              ))}
+              {/* Real errors (not auto-resolved) */}
+              {(validation?.errors || []).filter((e) => {
+                if (e.field === 'gstin' && autoResolutions.gstin?.resolved && fields.gstin) return false
+                if (e.field === 'invoiceDate' && autoResolutions.invoiceDate?.resolved && fields.invoiceDate) return false
+                if (e.field === 'lineItems' && autoResolutions.lineItems?.resolved) return false
+                return true
+              }).map((e, i) => (
+                <button key={`e${i}`} type="button" onClick={() => {
+                  const el = document.querySelector(`[data-field="${e.field}"]`)
+                  if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }
+                }} className="w-full text-left flex items-start gap-2 p-2.5 bg-red-50 rounded-xl hover:bg-red-100 transition cursor-pointer group">
                   <span className="text-red-500 mt-0.5">{IC.xCircle('w-4 h-4')}</span>
-                  <div><span className="text-xs font-bold text-red-800">{e.field}:</span> <span className="text-xs text-red-700">{e.message}</span></div>
-                </div>
+                  <div className="flex-1">
+                    <span className="text-xs font-bold text-red-800">{e.field}:</span>{' '}
+                    <span className="text-xs text-red-700">{e.message}</span>
+                  </div>
+                  <span className="text-xs text-red-400 opacity-0 group-hover:opacity-100 transition">Click to fix →</span>
+                </button>
               ))}
-              {validation.warnings?.map((w, i) => (
-                <div key={`w${i}`} className="flex items-start gap-2 p-2.5 bg-yellow-50 rounded-xl">
+              {dateSystemInferred && (
+                <button type="button" onClick={() => {
+                  const el = document.querySelector('[data-field="invoiceDate"]')
+                  if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }
+                }} className="w-full text-left flex items-start gap-2 p-2.5 bg-blue-50 rounded-xl hover:bg-blue-100 transition cursor-pointer group">
+                  <span className="text-blue-500 mt-0.5">{IC.clock('w-4 h-4')}</span>
+                  <div className="flex-1">
+                    <span className="text-xs font-bold text-blue-800">invoiceDate:</span>{' '}
+                    <span className="text-xs text-blue-700">Date was system-inferred ({dateSource.replace(/_/g, ' ')}) — please confirm it is correct</span>
+                  </div>
+                  <span className="text-xs text-blue-400 opacity-0 group-hover:opacity-100 transition">Click to verify →</span>
+                </button>
+              )}
+              {validation?.warnings?.map((w, i) => (
+                <button key={`w${i}`} type="button" onClick={() => {
+                  const el = document.querySelector(`[data-field="${w.field}"]`)
+                  if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }
+                }} className="w-full text-left flex items-start gap-2 p-2.5 bg-yellow-50 rounded-xl hover:bg-yellow-100 transition cursor-pointer group">
                   <span className="text-yellow-500 mt-0.5">{IC.warning('w-4 h-4')}</span>
-                  <div><span className="text-xs font-bold text-yellow-800">{w.field}:</span> <span className="text-xs text-yellow-700">{w.message}</span></div>
-                </div>
+                  <div className="flex-1">
+                    <span className="text-xs font-bold text-yellow-800">{w.field}:</span>{' '}
+                    <span className="text-xs text-yellow-700">{w.message}</span>
+                  </div>
+                  <span className="text-xs text-yellow-400 opacity-0 group-hover:opacity-100 transition">Click to review →</span>
+                </button>
               ))}
+            </div>
+          )}
+
+          {/* ── OCR Intelligence Summary ──────────────── */}
+          {(ocrCorrections.length > 0 || financialFlags.length > 0 || vendorHints.length > 0 || ocrDuplicates.length > 0 || ocrMeta) && (
+            <div className="bg-white rounded-2xl border-2 border-indigo-200 p-5 space-y-3">
+              <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-2">{IC.chip('w-4 h-4')} AI Intelligence Report</h3>
+
+              {/* Pre-processing info */}
+              {ocrMeta?.variant && (
+                <div className="flex items-center gap-2 p-2.5 bg-indigo-50 rounded-xl text-xs">
+                  <span className="text-indigo-500">{IC.bolt('w-4 h-4')}</span>
+                  <span className="text-indigo-700">
+                    Multi-pass OCR: Best variant <strong>{ocrMeta.variant}</strong> ({ocrMeta.ocrConfidence?.toFixed(1)}% confidence)
+                    {ocrMeta.allResults?.length > 1 && ` — tested ${ocrMeta.allResults.length} image variants`}
+                    {ocrMeta.preprocessDurationMs && ` in ${ocrMeta.preprocessDurationMs}ms`}
+                  </span>
+                </div>
+              )}
+
+              {/* Auto-corrections applied */}
+              {ocrCorrections.length > 0 && (
+                <details className="group">
+                  <summary className="cursor-pointer text-xs font-semibold text-indigo-700 flex items-center gap-1.5 p-2 hover:bg-indigo-50 rounded-lg">
+                    {IC.refresh('w-3.5 h-3.5')} {ocrCorrections.length} Auto-Correction{ocrCorrections.length > 1 ? 's' : ''} Applied
+                    <span className="ml-auto text-indigo-400 group-open:rotate-180 transition">▼</span>
+                  </summary>
+                  <div className="mt-1 space-y-1 max-h-40 overflow-auto">
+                    {ocrCorrections.map((c, i) => (
+                      <div key={i} className="flex items-start gap-2 p-2 bg-green-50 rounded-lg text-xs">
+                        <span className="text-green-500 mt-0.5">{IC.checkCircle('w-3.5 h-3.5')}</span>
+                        <div>
+                          <span className="font-bold text-green-800">{c.field}:</span>{' '}
+                          {c.from !== null && c.from !== undefined && <span className="text-gray-500 line-through">{String(c.from).slice(0, 30)}</span>}
+                          {c.to !== null && c.to !== undefined && <span className="text-green-700"> → {String(c.to).slice(0, 50)}</span>}
+                          <span className="text-gray-400 ml-1">({c.rule})</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {/* Financial consistency flags */}
+              {financialFlags.length > 0 && (
+                <div className="space-y-1">
+                  {financialFlags.map((f, i) => (
+                    <div key={i} className={`flex items-start gap-2 p-2.5 rounded-xl text-xs ${
+                      f.severity === 'error' ? 'bg-red-50' : 'bg-yellow-50'
+                    }`}>
+                      <span className={f.severity === 'error' ? 'text-red-500' : 'text-yellow-500'}>{IC.warning('w-4 h-4')}</span>
+                      <div>
+                        <span className={`font-bold ${f.severity === 'error' ? 'text-red-800' : 'text-yellow-800'}`}>{f.field}:</span>{' '}
+                        <span className={f.severity === 'error' ? 'text-red-700' : 'text-yellow-700'}>{f.message}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Vendor hints */}
+              {vendorHints.length > 0 && (
+                <div className="space-y-1">
+                  {vendorHints.map((h, i) => (
+                    <div key={i} className="flex items-start gap-2 p-2.5 bg-purple-50 rounded-xl text-xs">
+                      <span className="text-purple-500">{IC.bookOpen('w-4 h-4')}</span>
+                      <div>
+                        <span className="font-bold text-purple-800">{h.field}:</span>{' '}
+                        <span className="text-purple-700">{h.message}</span>
+                        {h.autoApplied && <span className="ml-1 px-1.5 py-0.5 bg-purple-200 text-purple-800 rounded text-[10px] font-bold">auto-applied</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Duplicate warnings */}
+              {ocrDuplicates.length > 0 && (
+                <div className="space-y-1">
+                  {ocrDuplicates.map((d, i) => (
+                    <div key={i} className="flex items-start gap-2 p-2.5 bg-orange-50 rounded-xl text-xs">
+                      <span className="text-orange-500">{IC.warning('w-4 h-4')}</span>
+                      <div>
+                        <span className="font-bold text-orange-800">{d.type === 'exact' ? 'Duplicate' : 'Possible Duplicate'}:</span>{' '}
+                        <span className="text-orange-700">{d.message}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Financial consistency badge */}
+              <div className={`flex items-center gap-2 p-2 rounded-lg text-xs font-medium ${
+                financiallyConsistent ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+              }`}>
+                {financiallyConsistent ? IC.checkCircle('w-4 h-4') : IC.xCircle('w-4 h-4')}
+                {financiallyConsistent ? 'Financial consistency: All amounts verified ✓' : 'Financial consistency: Amounts have discrepancies — review required'}
+              </div>
             </div>
           )}
 
@@ -788,29 +1153,38 @@ export default function InvoiceScanner() {
                         <tr>
                           <th className="text-left p-2.5 w-8 rounded-l-lg">#</th>
                           <th className="text-left p-2.5">Description</th>
+                          {lineItems.some((it) => it.hsn) && <th className="text-left p-2.5 w-20">HSN</th>}
                           <th className="text-right p-2.5 w-20">Qty</th>
                           <th className="text-right p-2.5 w-24">Unit Price</th>
                           <th className="text-right p-2.5 w-20">Tax</th>
+                          {lineItems.some((it) => it.gstRate) && <th className="text-right p-2.5 w-16">GST%</th>}
                           <th className="text-right p-2.5 w-24">Amount</th>
                           <th className="w-8 rounded-r-lg"></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {lineItems.map((it, i) => (
-                          <tr key={it.id} className="border-t border-border hover:bg-gray-50/50">
-                            <td className="p-2 text-gray-400 text-xs">{i + 1}</td>
+                        {lineItems.map((it, i) => {
+                          const isInvalid = (it.quantity <= 0 || it.unitPrice <= 0) && it.amount > 0
+                          const hasHSN = lineItems.some((x) => x.hsn)
+                          const hasGSTRate = lineItems.some((x) => x.gstRate)
+                          return (
+                          <tr key={it.id} className={`border-t border-border ${isInvalid ? 'bg-red-50 ring-1 ring-inset ring-red-200' : 'hover:bg-gray-50/50'}`}>
+                            <td className="p-2 text-gray-400 text-xs">{i + 1}{isInvalid && <span className="text-red-500 ml-1" title="Invalid: qty or unit price is 0">⚠</span>}</td>
                             <td className="p-2"><input value={it.description} onChange={(e) => updateLineItem(i, 'description', e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-100" /></td>
-                            <td className="p-2"><input type="number" value={it.quantity} onChange={(e) => updateLineItem(i, 'quantity', +e.target.value || 0)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:border-blue-400" /></td>
-                            <td className="p-2"><input type="number" value={it.unitPrice} onChange={(e) => updateLineItem(i, 'unitPrice', +e.target.value || 0)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:border-blue-400" /></td>
+                            {hasHSN && <td className="p-2"><input value={it.hsn || ''} onChange={(e) => updateLineItem(i, 'hsn', e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:border-blue-400" placeholder="HSN" /></td>}
+                            <td className="p-2"><input type="number" value={it.quantity} onChange={(e) => updateLineItem(i, 'quantity', +e.target.value || 0)} className={`w-full border rounded-lg px-2 py-1.5 text-sm text-right focus:border-blue-400 ${isInvalid && it.quantity <= 0 ? 'border-red-400 bg-red-50' : 'border-gray-200'}`} /></td>
+                            <td className="p-2"><input type="number" value={it.unitPrice} onChange={(e) => updateLineItem(i, 'unitPrice', +e.target.value || 0)} className={`w-full border rounded-lg px-2 py-1.5 text-sm text-right focus:border-blue-400 ${isInvalid && it.unitPrice <= 0 ? 'border-red-400 bg-red-50' : 'border-gray-200'}`} /></td>
                             <td className="p-2"><input type="number" value={it.tax} onChange={(e) => updateLineItem(i, 'tax', +e.target.value || 0)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:border-blue-400" /></td>
+                            {hasGSTRate && <td className="p-2 text-xs text-right text-gray-500">{it.gstRate ? `${it.gstRate}%` : ''}</td>}
                             <td className="p-2"><input type="number" value={it.amount} onChange={(e) => updateLineItem(i, 'amount', +e.target.value || 0)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:border-blue-400" /></td>
                             <td className="p-2"><button onClick={() => removeLineItem(i)} className="text-red-400 hover:text-red-600 text-lg font-bold">×</button></td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                       <tfoot className="bg-gray-50 font-semibold text-xs">
                         <tr>
-                          <td colSpan={5} className="p-2.5 text-right">Line Items Total:</td>
+                          <td colSpan={5 + (lineItems.some((x) => x.hsn) ? 1 : 0) + (lineItems.some((x) => x.gstRate) ? 1 : 0)} className="p-2.5 text-right">Line Items Total:</td>
                           <td className="p-2.5 text-right text-base">{fmt(lineItems.reduce((s, it) => s + (it.amount || 0), 0))}</td>
                           <td></td>
                         </tr>
@@ -847,30 +1221,141 @@ export default function InvoiceScanner() {
                 </div>
               </div>
 
-              {/* Confidence Scores */}
+              {/* Confidence Scores 2.0 — Enforcement Engine */}
               {Object.keys(fieldConf).length > 0 && (
                 <div className="bg-white rounded-2xl shadow-sm border border-border p-5">
-                  <h3 className="font-bold text-text-primary mb-3 text-sm flex items-center gap-2">{IC.target('w-4 h-4 text-blue-500')} AI Confidence Scores</h3>
+                  <h3 className="font-bold text-text-primary mb-3 text-sm flex items-center gap-2">{IC.target('w-4 h-4 text-blue-500')} Confidence Enforcement</h3>
                   <div className="space-y-2">
-                    {Object.entries(fieldConf).map(([key, val]) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <span className="text-xs text-text-secondary w-24 capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
-                        <div className="flex-1 bg-gray-100 rounded-full h-2">
-                          <div className={`h-2 rounded-full transition-all ${
-                            val.confidence >= 0.8 ? 'bg-green-500' : val.confidence >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'
-                          }`} style={{ width: `${val.confidence * 100}%` }} />
+                    {Object.entries(fieldConf).map(([key, val]) => {
+                      const bd = confidenceBreakdown?.[key]
+                      const isCritical = ['vendorName', 'invoiceNumber', 'totalAmount', 'gstin'].includes(key)
+                      const isAutoResolved = val.autoResolved
+                      const isBlocked = isCritical && val.confidence < CONFIDENCE_HARD_BLOCK && !isAutoResolved
+                      const needsReview = isCritical && val.confidence >= CONFIDENCE_HARD_BLOCK && val.confidence < CONFIDENCE_THRESHOLD && !isAutoResolved
+                      return (
+                        <div key={key} className={`group rounded-lg p-1.5 ${isBlocked ? 'bg-red-50 ring-1 ring-red-200' : isAutoResolved ? 'bg-emerald-50 ring-1 ring-emerald-200' : needsReview ? 'bg-yellow-50 ring-1 ring-yellow-200' : ''}`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs w-24 capitalize ${isBlocked ? 'text-red-700 font-bold' : isAutoResolved ? 'text-emerald-700 font-semibold' : needsReview ? 'text-yellow-700 font-semibold' : 'text-text-secondary'}`}>
+                              {isBlocked && '🔴 '}{isAutoResolved && '✅ '}{needsReview && '🟡 '}{key.replace(/([A-Z])/g, ' $1')}
+                            </span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-2">
+                              <div className={`h-2 rounded-full transition-all ${
+                                isBlocked ? 'bg-red-500' : isAutoResolved ? 'bg-emerald-500' : needsReview ? 'bg-yellow-500' : val.confidence >= 0.8 ? 'bg-green-500' : 'bg-yellow-500'
+                              }`} style={{ width: `${val.confidence * 100}%` }} />
+                            </div>
+                            <span className={`text-xs font-bold w-10 text-right ${isBlocked ? 'text-red-700' : isAutoResolved ? 'text-emerald-700' : needsReview ? 'text-yellow-700' : ''}`}>{pct(val.confidence)}</span>
+                            {isAutoResolved && <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium">Auto-resolved</span>}
+                          </div>
+                          {isBlocked && (
+                            <div className="text-[10px] text-red-600 ml-26 mt-0.5 font-medium">⛔ Blocked — manual verification required</div>
+                          )}
+                          {needsReview && (
+                            <div className="text-[10px] text-yellow-600 ml-26 mt-0.5 font-medium">⚠ Review recommended (below 85%)</div>
+                          )}
+                          {isAutoResolved && val.resolutionSource && (
+                            <div className="text-[10px] text-emerald-600 ml-26 mt-0.5 font-medium">✓ Resolved via {val.resolutionSource.replace(/_/g, ' ')}</div>
+                          )}
+                          {bd && (
+                            <div className="hidden group-hover:flex gap-1 mt-0.5 ml-26 text-[9px] text-gray-400">
+                              <span>OCR:{pct(bd.ocr)}</span>
+                              <span>Pat:{pct(bd.pattern)}</span>
+                              <span>XV:{pct(bd.crossValidation)}</span>
+                              <span>Fin:{pct(bd.financial)}</span>
+                              {bd.boostSource && <span className="text-emerald-500">Boost:{bd.boostSource}</span>}
+                            </div>
+                          )}
                         </div>
-                        <span className="text-xs font-bold w-10 text-right">{pct(val.confidence)}</span>
-                      </div>
-                    ))}
+                      )
+                    })}
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-border text-[10px] text-gray-400">
+                    ✅ Auto-resolved &nbsp; 🟢 ≥85%: Auto-accept &nbsp; 🟡 50-85%: Review &nbsp; 🔴 &lt;50%: Blocked
                   </div>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="bg-white rounded-2xl shadow-sm border border-border p-5">
+          {/* Action Buttons — AUTONOMOUS POSTING GATE */}
+          <div className="bg-white rounded-2xl shadow-sm border border-border p-5 space-y-4">
+            {/* Posting Gate Summary */}
+            <div className={`rounded-xl p-4 ${canPost ? 'bg-green-50 border border-green-200' : 'bg-red-50 border-2 border-red-300'}`}>
+              <h4 className="text-sm font-bold flex items-center gap-2 mb-2">
+                {canPost
+                  ? <>{IC.checkCircle('w-4 h-4 text-green-600')} <span className="text-green-800">All Checks Passed — Ready to Post</span></>
+                  : <>{IC.xCircle('w-4 h-4 text-red-600')} <span className="text-red-800">Posting Blocked — {postingBlockers.length} Issue{postingBlockers.length > 1 ? 's' : ''} Must Be Resolved</span></>}
+              </h4>
+              <ul className="text-xs space-y-1">
+                {postingBlockers.map((b, i) => (
+                  <li key={i} className="text-red-700 flex items-start gap-1.5">
+                    <span className="mt-0.5">✗</span> {b}
+                  </li>
+                ))}
+                {canPost && <li className="text-green-700">✓ All validations passed — data integrity verified</li>}
+                {resolvedCount > 0 && (
+                  <li className="text-green-700 flex items-start gap-1.5">
+                    <span className="mt-0.5">✓</span> {resolvedCount} field{resolvedCount > 1 ? 's' : ''} auto-resolved by system intelligence
+                  </li>
+                )}
+                {fieldsNeedingReview.length > 0 && (
+                  <li className="text-yellow-700 flex items-start gap-1.5">
+                    <span className="mt-0.5">⚠</span> Review recommended: {fieldsNeedingReview.join(', ')} (confidence 50-85%)
+                  </li>
+                )}
+                {validation?.warnings?.length > 0 && <li className="text-yellow-700 flex items-start gap-1.5"><span className="mt-0.5">⚠</span> {validation.warnings.length} warning(s) — review recommended</li>}
+              </ul>
+            </div>
+
+            {/* Auto-Resolution Summary */}
+            {resolvedCount > 0 && (
+              <div className="rounded-xl p-3 bg-emerald-50 border border-emerald-200 text-xs space-y-1">
+                <strong className="text-emerald-800">System Intelligence Auto-Resolved:</strong>
+                <ul className="space-y-0.5">
+                  {autoResolutions.gstin?.resolved && (
+                    <li className="text-emerald-700">✓ GSTIN recovered from {autoResolutions.gstin.source === 'vendor_history' ? 'vendor invoice history' : autoResolutions.gstin.source === 'vendor_fuzzy_match' ? 'vendor fuzzy match' : autoResolutions.gstin.source || 'OCR recovery'}</li>
+                  )}
+                  {autoResolutions.invoiceDate?.resolved && (
+                    <li className="text-emerald-700">✓ Invoice date {autoResolutions.invoiceDate.source === 'upload_timestamp' ? 'inferred from upload timestamp' : autoResolutions.invoiceDate.source === 'deep_scan' ? 'recovered via deep scan' : 'recovered from document'}{autoResolutions.invoiceDate.systemInferred ? ' (system-inferred)' : ''}</li>
+                  )}
+                  {autoResolutions.lineItems?.resolved && (
+                    <li className="text-emerald-700">✓ {autoResolutions.lineItems.itemsFixed > 0 ? `${autoResolutions.lineItems.itemsFixed} line item(s) reconstructed` : 'All line items validated'}</li>
+                  )}
+                  {autoResolutions.financials?.resolved && (
+                    <li className="text-emerald-700">✓ Financial totals recomputed ({autoResolutions.financials.correctionsApplied} correction{autoResolutions.financials.correctionsApplied !== 1 ? 's' : ''})</li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {/* Line Item Reconstruction Info */}
+            {lineItemMeta && (lineItemMeta.unrealisticValuesFixed > 0 || lineItemMeta.reconstructedFromText) && (
+              <div className="rounded-xl p-3 bg-blue-50 border border-blue-200 text-xs text-blue-700">
+                <strong>Line Item Reconstruction:</strong>{' '}
+                {lineItemMeta.unrealisticValuesFixed > 0 && `${lineItemMeta.unrealisticValuesFixed} unrealistic value(s) fixed. `}
+                {lineItemMeta.reconstructedFromText && 'Items reconstructed from raw OCR text. '}
+                {lineItemMeta.allItemsValid ? '✓ All items now valid.' : '⚠ Some items still need review.'}
+              </div>
+            )}
+
+            {/* Table Reconstruction Engine Info */}
+            {tableReconMeta && (
+              <div className={`rounded-xl p-3 text-xs ${tableReconMeta.used ? 'bg-violet-50 border border-violet-200 text-violet-700' : 'bg-gray-50 border border-gray-200 text-gray-500'}`}>
+                <strong>Table Reconstruction Engine:</strong>{' '}
+                {tableReconMeta.used ? (
+                  <>
+                    ✓ {tableReconMeta.method === 'bbox' ? 'Bounding-box' : tableReconMeta.method === 'text_position' ? 'Text-position' : tableReconMeta.method} alignment
+                    {tableReconMeta.columnsDetected > 0 && ` — ${tableReconMeta.columnsDetected} columns mapped`}
+                    {tableReconMeta.headerDetected && ' (header detected)'}
+                    {' • '}{tableReconMeta.validItems}/{tableReconMeta.itemsExtracted} items valid
+                    {' • '}Confidence: {Math.round(tableReconMeta.tableConfidence * 100)}%
+                    {tableReconMeta.corrections > 0 && ` • ${tableReconMeta.corrections} correction(s)`}
+                  </>
+                ) : (
+                  <>Not used — {tableReconMeta.reason === 'no_items_extracted' ? 'no table structure detected' : tableReconMeta.reason === 'low_confidence' ? 'low confidence' : tableReconMeta.reason || 'fallback to basic parsing'}</>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-3">
               <button onClick={() => setView('upload')}
                 className="px-5 py-3 border-2 border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
@@ -884,10 +1369,17 @@ export default function InvoiceScanner() {
                 className="px-5 py-3 border-2 border-red-200 rounded-xl text-sm font-medium text-red-700 hover:bg-red-50 transition flex items-center gap-2">
                 {IC.xCircle('w-4 h-4')} Reject Invoice
               </button>
-              <button onClick={handleProcess} disabled={loading}
-                className="flex-1 min-w-[280px] bg-green-600 hover:bg-green-700 text-white rounded-xl text-base font-bold transition-all shadow-lg flex items-center justify-center gap-2 py-3.5">
+              <button onClick={handleProcess} disabled={loading || !canPost}
+                title={!canPost ? postingBlockers.join('\n') : 'Post to ERP'}
+                className={`flex-1 min-w-[280px] rounded-xl text-base font-bold transition-all shadow-lg flex items-center justify-center gap-2 py-3.5 ${
+                  !canPost ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none' :
+                  loading ? 'bg-green-400 text-white cursor-wait' :
+                  'bg-green-600 hover:bg-green-700 text-white'
+                }`}>
                 {loading ? (
                   <><svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Processing...</>
+                ) : !canPost ? (
+                  <>{IC.warning('w-5 h-5')} {postingBlockers.length} Blocker{postingBlockers.length > 1 ? 's' : ''} — Fix to Post</>
                 ) : (
                   <>{IC.checkCircle('w-5 h-5')} Accept {'&'} Post to ERP</>
                 )}
@@ -900,7 +1392,7 @@ export default function InvoiceScanner() {
       {/* ══════════════════════════════════════════ */}
       {/*  VIEW: RESULT                              */}
       {/* ══════════════════════════════════════════ */}
-      {view === 'result' && result && (
+      {activeTab === 'scanner' && view === 'result' && result && (
         <div className="space-y-5">
 
           {/* Success banner */}
@@ -1067,28 +1559,36 @@ export default function InvoiceScanner() {
 /* ── Reusable sub-components ──────────────────────── */
 
 function FieldInput({ field, value, conf, error, warn, onChange, isAmount }) {
+  const isBlocked = conf && ['vendorName', 'invoiceNumber', 'totalAmount', 'gstin'].includes(field.key) && conf.confidence < CONFIDENCE_HARD_BLOCK
+  const isLowConf = conf && conf.confidence < CONFIDENCE_THRESHOLD
   return (
     <div>
       <label className="text-xs text-text-secondary mb-1.5 flex items-center gap-1.5 font-medium">
         {field.label}
         {conf && (
           <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+            isBlocked ? 'bg-red-100 text-red-600 ring-1 ring-red-300' :
             conf.confidence >= 0.8 ? 'bg-green-100 text-green-600' :
             conf.confidence >= 0.5 ? 'bg-yellow-100 text-yellow-600' :
             'bg-red-100 text-red-600'
-          }`}>{pct(conf.confidence)}</span>
+          }`}>{pct(conf.confidence)}{isBlocked ? ' ⛔' : ''}</span>
         )}
+        <span className="text-[10px] text-gray-400 italic">editable</span>
       </label>
       <input
         type={field.type}
+        data-field={field.key}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         className={`w-full rounded-xl px-3 py-2.5 text-sm border-2 transition ${
-          error ? 'border-red-400 bg-red-50 focus:ring-red-100' :
+          error || isBlocked ? 'border-red-400 bg-red-50 focus:ring-red-100' :
+          isLowConf ? 'border-yellow-400 bg-yellow-50 focus:ring-yellow-100' :
           'border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100'
         } ${isAmount ? 'text-right font-semibold' : ''}`}
       />
+      {isBlocked && !error && <p className="text-xs text-red-600 mt-1 flex items-center gap-1">{IC.xCircle('w-3.5 h-3.5')} Confidence too low — manual verification required before posting</p>}
       {error && <p className="text-xs text-red-600 mt-1 flex items-center gap-1">{IC.xCircle('w-3.5 h-3.5')} {error.message}</p>}
+      {isLowConf && !isBlocked && !error && <p className="text-xs text-yellow-600 mt-1 flex items-center gap-1">{IC.warning('w-3.5 h-3.5')} Below 85% confidence — review recommended</p>}
       {warn && <p className="text-xs text-yellow-600 mt-1 flex items-center gap-1">{IC.warning('w-3.5 h-3.5')} {warn.message}</p>}
     </div>
   )

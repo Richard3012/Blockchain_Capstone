@@ -10,6 +10,7 @@ import dashboardRouter from './dashboard.routes.js'
 import deliveryRouter from './delivery.routes.js'
 import demandForecastRouter from './demand-forecast.routes.js'
 import gstRouter from './gst.routes.js'
+import hrRouter from './hr.routes.js'
 import inventoryRouter from './inventory.routes.js'
 import invoicesRouter from './invoices.routes.js'
 import invoiceScannerRouter from './invoice-scanner.routes.js'
@@ -39,6 +40,7 @@ router.use('/dashboard', dashboardRouter)
 router.use('/blockchain', blockchainRouter)
 router.use('/accounting', accountingRouter)
 router.use('/gst', gstRouter)
+router.use('/hr', hrRouter)
 router.use('/tds', tdsRouter)
 router.use('/demand', demandForecastRouter)
 router.use('/delivery', deliveryRouter)

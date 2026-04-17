@@ -3,10 +3,14 @@ import { apiClient } from './api/client'
 export const gstService = {
   getSummary(period) { return apiClient.get(`/gst/summary?period=${period}`) },
   generateGSTR1(period) { return apiClient.get(`/gst/gstr1?period=${period}`) },
+  generateGSTR3B(period) { return apiClient.get(`/gst/gstr3b?period=${period}`) },
   fileReturn(returnType, period) { return apiClient.post('/gst/file-return', { returnType, period }) },
   getReturns(financialYear) { return apiClient.get(`/gst/returns${financialYear ? `?financialYear=${financialYear}` : ''}`) },
+  getReturnById(id) { return apiClient.get(`/gst/returns/${id}`) },
   getStateCodes() { return apiClient.get('/gst/state-codes') },
   searchHSN(query) { return apiClient.get(`/gst/hsn?q=${encodeURIComponent(query)}`) },
+  validateGSTIN(gstin) { return apiClient.get(`/gst/validate-gstin?gstin=${encodeURIComponent(gstin)}`) },
+  getStats() { return apiClient.get('/gst/stats') },
 }
 
 export const accountingService = {

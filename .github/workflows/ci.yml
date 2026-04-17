@@ -95,6 +95,24 @@ jobs:
           JWT_SECRET: ci-test-secret
           MONGODB_URI: ""
 
+      # Run HR model & service tests
+      - name: Run HR tests
+        run: node --test test/hr.test.mjs
+        env:
+          NODE_ENV: test
+
+      # Run GST model & integration tests
+      - name: Run GST tests
+        run: node --test test/gst.test.mjs
+        env:
+          NODE_ENV: test
+
+      # Run Invoice Scanner & validation tests
+      - name: Run Scanner tests
+        run: node --test test/scanner.test.mjs
+        env:
+          NODE_ENV: test
+
       # Smoke-test: boot Express server, verify it stays alive for 5s
       - name: Backend smoke test
         run: |

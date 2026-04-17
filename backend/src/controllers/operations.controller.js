@@ -12,6 +12,7 @@ import { User } from '../models/user.model.js'
 import { WorkflowRequest } from '../models/workflow-request.model.js'
 import { WorkOrder } from '../models/work-order.model.js'
 import { Invoice } from '../models/invoice.model.js'
+import { LeaveRequest } from '../models/leave-request.model.js'
 import { companyFilter } from '../utils/scope.js'
 import { logger } from '../utils/logger.js'
 
@@ -388,7 +389,7 @@ export const operationsController = {
   }),
 
   notifications: asyncHandler(async (req, res) => {
-    const [criticalTickets, lowStockProducts, overdueInvoices] = await Promise.all([
+    const [criticalTickets, lowStockProducts, overdueInvoices, pendingLeaves] = await Promise.all([
       SupportTicket.find(companyFilter(req.user, { status: { $in: ['open', 'in-progress'] } }))
         .sort({ updatedAt: -1 })
         .limit(5),
@@ -397,6 +398,9 @@ export const operationsController = {
         .limit(5),
       Invoice.find(companyFilter(req.user, { status: 'overdue' }))
         .sort({ dueDate: 1 })
+        .limit(5),
+      LeaveRequest.find(companyFilter(req.user, { status: 'pending' }))
+        .sort({ createdAt: -1 })
         .limit(5),
     ])
 
@@ -424,6 +428,14 @@ export const operationsController = {
         message: `Balance due ₹${(invoice.balanceDue || invoice.totalAmount || 0).toLocaleString('en-IN')}`,
         timestamp: invoice.updatedAt || invoice.createdAt,
         link: 'invoices',
+      })),
+      ...pendingLeaves.map((leave) => ({
+        id: `leave-${leave._id}`,
+        severity: 'warning',
+        title: `Pending leave: ${leave.employeeName}`,
+        message: `${leave.days} day(s) ${leave.leaveType} leave awaiting approval`,
+        timestamp: leave.createdAt,
+        link: 'hr',
       })),
     ]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())

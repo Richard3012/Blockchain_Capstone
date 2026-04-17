@@ -17,5 +17,10 @@ export const ENTITY_TYPES = [
   'account',
   'journal_entry',
   'gst_return',
+  'hsn_code',
   'tds_entry',
+  'leave_request',
+  'attendance_log',
+  'employee',
+  'scanned_invoice',
 ]
