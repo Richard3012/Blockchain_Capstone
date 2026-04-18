@@ -28,6 +28,10 @@ import tempfile
 import traceback
 from typing import Any, Dict, List
 
+# Skip the model-host reachability probe that PaddleX runs on every import —
+# it can hang for 30+ seconds on networks where the hosters are unreachable.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
