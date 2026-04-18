@@ -279,6 +279,13 @@ export default function InvoiceScanner() {
           hsn: it.hsn || '', gstRate: it.gstRate || 0, cgst: it.cgst || 0, sgst: it.sgst || 0, igst: it.igst || 0,
         })),
       )
+      setLineItemValidation(
+        validateLineItemsMath((data.lineItems || []).map((it, i) => ({
+          id: i, description: it.description || '', quantity: it.quantity || 0,
+          unitPrice: it.unitPrice || 0, tax: it.tax || 0, amount: it.amount || 0,
+          gstRate: it.gstRate || 0, taxableValue: it.taxableValue || 0,
+        }))),
+      )
       setExtractedText(data.extractedText || '')
       setValidation(data.validation || null)
       setFieldConf(data.fieldConfidence || {})
@@ -458,12 +465,112 @@ export default function InvoiceScanner() {
     ? Object.values(fieldConf).reduce((s, f) => s + f.confidence, 0) / Object.keys(fieldConf).length
     : 0
 
+  /** Recompute Qty × Rate → Taxable → Tax → Total and flag deviations ≥ 1% */
+  const validateLineItemsMath = (items) => {
+    return items.map((item) => {
+      const qty = parseFloat(item.quantity) || 0
+      const rate = parseFloat(item.unitPrice) || 0
+      const taxPct = parseFloat(item.gstRate) || 0
+      const recomputedTaxable = Math.round(qty * rate * 100) / 100
+      const recomputedTax = Math.round(recomputedTaxable * taxPct / 100 * 100) / 100
+      const recomputedTotal = Math.round((recomputedTaxable + recomputedTax) * 100) / 100
+      const lineTotal = parseFloat(item.amount) || 0
+      const deviation = lineTotal > 0 ? Math.abs(recomputedTotal - lineTotal) / lineTotal : 0
+      return {
+        taxableMatch: recomputedTaxable <= 0 || Math.abs(recomputedTaxable - (parseFloat(item.taxableValue) || recomputedTaxable)) < 0.02,
+        totalMatch: deviation < 0.01,
+        needsReview: deviation >= 0.01,
+        recomputedTaxable,
+        recomputedTax,
+        recomputedTotal,
+        deviationPct: Math.round(deviation * 10000) / 100,
+      }
+    })
+  }
+
+  /** Trigger AI deep re-extraction via Claude */
+  const handleAIReExtract = async () => {
+    if (!extractedText) { addToast?.('No OCR text available for AI re-extraction', 'error'); return }
+    setAiReExtracting(true)
+    setError(null)
+    try {
+      const body = {
+        rawText: extractedText,
+        currentLineItems: lineItems,
+        vendorName: fields.vendorName,
+        gstin: fields.gstin,
+        invoiceNumber: fields.invoiceNumber,
+        invoiceDate: fields.invoiceDate,
+      }
+      const token = getToken()
+      const res = await fetch(`${API}/invoice-scanner/ocr/ai-reextract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.message || data.error || 'AI re-extraction failed')
+      const aiData = data.data
+      // Apply AI-corrected line items
+      const newItems = (aiData.lineItems || []).map((it, i) => ({
+        id: i,
+        description: it.description || '',
+        hsn: it.hsn || '',
+        quantity: it.quantity || 0,
+        unitPrice: it.unitPrice || 0,
+        tax: it.tax || 0,
+        amount: it.amount || 0,
+        gstRate: it.gstRate || 0,
+        cgst: it.cgst || 0,
+        sgst: it.sgst || 0,
+        igst: it.igst || 0,
+        taxableValue: it.taxableValue || 0,
+        uom: it.uom || '',
+        aiFlags: it.aiFlags || [],
+        aiConfidence: it.aiConfidence || {},
+      }))
+      setLineItems(newItems)
+      setLineItemValidation(validateLineItemsMath(newItems))
+      // Apply meta overrides if AI found better values
+      if (aiData.invoiceMeta) {
+        const m = aiData.invoiceMeta
+        setFields((prev) => ({
+          ...prev,
+          ...(m.vendorName && !prev.vendorName ? { vendorName: m.vendorName } : {}),
+          ...(m.gstin && !prev.gstin ? { gstin: m.gstin } : {}),
+          ...(m.invoiceNumber && !prev.invoiceNumber ? { invoiceNumber: m.invoiceNumber } : {}),
+          ...(m.invoiceDate && !prev.invoiceDate ? { invoiceDate: m.invoiceDate } : {}),
+        }))
+      }
+      // Apply financial overrides if AI found better totals
+      if (aiData.financials?.grand_total > 0) {
+        setFields((prev) => ({
+          ...prev,
+          subtotal: aiData.financials.subtotal || prev.subtotal,
+          taxAmount: aiData.financials.taxAmount || prev.taxAmount,
+          totalAmount: aiData.financials.totalAmount || prev.totalAmount,
+        }))
+      }
+      // Append AI corrections to existing corrections list
+      if (aiData.corrections?.length > 0) {
+        setOcrCorrections((prev) => [...prev, ...aiData.corrections])
+      }
+      addToast?.(`AI re-extracted ${newItems.length} line item(s) — model: ${aiData.model || 'claude'}`, 'success')
+    } catch (e) {
+      setError(e.message)
+      addToast?.(e.message, 'error')
+    }
+    setAiReExtracting(false)
+  }
+
   // OCR Intelligence additional state
   const [dateSystemInferred, setDateSystemInferred] = useState(false)
   const [dateSource, setDateSource] = useState('extracted')
   const [lineItemMeta, setLineItemMeta] = useState(null)
   const [tableReconMeta, setTableReconMeta] = useState(null)
   const [autoResolutions, setAutoResolutions] = useState({})
+  const [aiReExtracting, setAiReExtracting] = useState(false)
+  const [lineItemValidation, setLineItemValidation] = useState([]) // per-row math validation
 
   // Determine if "Accept & Post" should be enabled — AUTONOMOUS ENFORCEMENT
   // Fields auto-resolved by intelligence pipeline are trusted — no manual block
@@ -1141,10 +1248,23 @@ export default function InvoiceScanner() {
               <div className="bg-white rounded-2xl shadow-sm border border-border p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold text-text-primary flex items-center gap-2">{IC.package('w-5 h-5 text-blue-500')} Line Items ({lineItems.length})</h3>
-                  <button onClick={addLineItem}
-                    className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-100 font-medium transition">
-                    + Add Row
-                  </button>
+                  <div className="flex gap-2">
+                    {extractedText && (
+                      <button
+                        onClick={handleAIReExtract}
+                        disabled={aiReExtracting}
+                        title="Use Claude AI with extended thinking to fix column-swap, HSN merge, unit suffix issues"
+                        className="text-xs bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg hover:bg-purple-100 font-medium transition flex items-center gap-1.5 disabled:opacity-50">
+                        {aiReExtracting
+                          ? <><span className="animate-spin">⟳</span> AI Re-Extracting…</>
+                          : <>{IC.chip('w-3.5 h-3.5')} AI Re-Extract</>}
+                      </button>
+                    )}
+                    <button onClick={addLineItem}
+                      className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-100 font-medium transition">
+                      + Add Row
+                    </button>
+                  </div>
                 </div>
                 {lineItems.length > 0 ? (
                   <div className="overflow-auto">
@@ -1167,9 +1287,20 @@ export default function InvoiceScanner() {
                           const isInvalid = (it.quantity <= 0 || it.unitPrice <= 0) && it.amount > 0
                           const hasHSN = lineItems.some((x) => x.hsn)
                           const hasGSTRate = lineItems.some((x) => x.gstRate)
+                          const rowValidation = lineItemValidation[i]
+                          const hasMathDeviation = rowValidation?.needsReview
                           return (
-                          <tr key={it.id} className={`border-t border-border ${isInvalid ? 'bg-red-50 ring-1 ring-inset ring-red-200' : 'hover:bg-gray-50/50'}`}>
-                            <td className="p-2 text-gray-400 text-xs">{i + 1}{isInvalid && <span className="text-red-500 ml-1" title="Invalid: qty or unit price is 0">⚠</span>}</td>
+                          <tr key={it.id} className={`border-t border-border ${isInvalid ? 'bg-red-50 ring-1 ring-inset ring-red-200' : hasMathDeviation ? 'bg-amber-50 ring-1 ring-inset ring-amber-200' : 'hover:bg-gray-50/50'}`}>
+                            <td className="p-2 text-gray-400 text-xs">
+                              {i + 1}
+                              {isInvalid && <span className="text-red-500 ml-1" title="Invalid: qty or unit price is 0">⚠</span>}
+                              {hasMathDeviation && !isInvalid && (
+                                <span className="text-amber-600 ml-1 cursor-help"
+                                  title={`Math deviation ${rowValidation.deviationPct}%: Qty×Rate=${rowValidation.recomputedTotal} ≠ Amount=${it.amount} — possible column swap`}>
+                                  ≠
+                                </span>
+                              )}
+                            </td>
                             <td className="p-2"><input value={it.description} onChange={(e) => updateLineItem(i, 'description', e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-100" /></td>
                             {hasHSN && <td className="p-2"><input value={it.hsn || ''} onChange={(e) => updateLineItem(i, 'hsn', e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:border-blue-400" placeholder="HSN" /></td>}
                             <td className="p-2"><input type="number" value={it.quantity} onChange={(e) => updateLineItem(i, 'quantity', +e.target.value || 0)} className={`w-full border rounded-lg px-2 py-1.5 text-sm text-right focus:border-blue-400 ${isInvalid && it.quantity <= 0 ? 'border-red-400 bg-red-50' : 'border-gray-200'}`} /></td>

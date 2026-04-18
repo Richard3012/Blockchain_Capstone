@@ -5,6 +5,7 @@ import { ocrIntelligenceService } from '../services/ocr-intelligence.service.js'
 import { confidenceScoringService } from '../services/ocr-confidence.service.js'
 import { vendorLearningService } from '../services/ocr-vendor-learning.service.js'
 import { fileExtractorService } from '../services/file-extractor.service.js'
+import { aiReExtractService } from '../services/ai-reextract.service.js'
 import { logger } from '../utils/logger.js'
 
 // Lazy-load preprocess service (depends on sharp, may not be available in test)
@@ -491,6 +492,58 @@ export const invoiceScannerController = {
         duplicates: intelligence.duplicates,
         consistent: intelligence.consistent,
         confidence: scoring,
+      },
+    })
+  }),
+
+  /**
+   * POST /ocr/ai-reextract — Deep AI re-extraction using Claude (extended thinking).
+   * Fixes column-swap, HSN merging, unit suffix, multi-line descriptions.
+   *
+   * Body: { rawText, currentLineItems?, vendorName?, gstin?, invoiceNumber?, invoiceDate? }
+   */
+  aiReExtract: asyncHandler(async (req, res) => {
+    const { rawText, currentLineItems, vendorName, gstin, invoiceNumber, invoiceDate } = req.body
+
+    if (!rawText || !rawText.trim()) {
+      const err = new Error('rawText is required for AI re-extraction')
+      err.statusCode = 400
+      throw err
+    }
+
+    if (!aiReExtractService.isAvailable()) {
+      const err = new Error('AI re-extraction is not configured (ANTHROPIC_API_KEY missing)')
+      err.statusCode = 503
+      throw err
+    }
+
+    const knownMeta = {}
+    if (vendorName) knownMeta['Vendor Name'] = vendorName
+    if (gstin) knownMeta['Vendor GSTIN'] = gstin
+    if (invoiceNumber) knownMeta['Invoice Number'] = invoiceNumber
+    if (invoiceDate) knownMeta['Invoice Date'] = invoiceDate
+
+    const result = await aiReExtractService.reExtract(
+      rawText,
+      currentLineItems || [],
+      knownMeta,
+    )
+
+    // Run mathematical validation on the returned items
+    const validated = aiReExtractService.validateLineItems(result.lineItems)
+
+    res.json({
+      success: true,
+      data: {
+        lineItems: validated,
+        invoiceMeta: result.invoiceMeta,
+        financials: result.financials,
+        corrections: result.corrections,
+        model: result.model,
+        durationMs: result.durationMs,
+        thinkingTokens: result.thinkingTokens,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
       },
     })
   }),

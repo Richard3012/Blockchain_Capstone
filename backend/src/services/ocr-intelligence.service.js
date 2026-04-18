@@ -294,8 +294,17 @@ function extractEmbeddedTableData(description) {
     const t = tokens[i]
     const cleaned = t.replace(/[,₹$]/g, '')
 
+    // ── Unit suffix stripping: "3.00 PCS" → qty value only, store unit ──
     if (uomRe.test(t)) {
       uomToken = t
+      continue
+    }
+
+    // "3.00PCS" combined token — split numeric from UOM suffix
+    const combMatch = t.match(/^([\d,]+(?:\.\d+)?)(PCS|NOS|UNITS?|KGS?|LTRS?|MTRS?|SETS?|EA|PC|NO)\.?$/i)
+    if (combMatch) {
+      numericTokens.push(parseFloat(combMatch[1].replace(/,/g, '')))
+      uomToken = combMatch[2]
       continue
     }
 
@@ -303,7 +312,7 @@ function extractEmbeddedTableData(description) {
     if (/^[\d,]+(?:\.\d+)?$/.test(cleaned) && cleaned.length > 0) {
       const numVal = parseFloat(cleaned.replace(/,/g, ''))
       if (!foundHSN && /^\d{4,8}$/.test(cleaned) && numVal >= 1000) {
-        // First big integer = HSN code
+        // First big integer = HSN code (anchor: never treat as qty/rate)
         hsnToken = cleaned
         foundHSN = true
         continue
@@ -346,6 +355,46 @@ function extractEmbeddedTableData(description) {
     quantity = nums[0]
   }
 
+  // ── Column-swap detection: qty × rate must ≈ taxableValue ──────────────
+  // OCR scanners misread Rate (499) as Qty and Qty (3) as Rate decimal when
+  // numeric columns are tightly spaced (1-column left-shift failure mode).
+  // Rule: Qty should be a small integer (1–100) and Rate should be ≥ 100
+  // for most industrial/commercial goods.
+  if (quantity > 0 && unitPrice > 0) {
+    if (taxableValue > 0) {
+      const expectedTaxable = round2(quantity * unitPrice)
+      const deviationPct = Math.abs(expectedTaxable - taxableValue) / Math.max(taxableValue, 1)
+      if (deviationPct > 0.05) {
+        // Try column swap: rate ↔ qty
+        const swappedExpected = round2(unitPrice * quantity) // same math, but swap assignment
+        const swappedQty = unitPrice
+        const swappedRate = quantity
+        const swappedTaxable = round2(swappedQty * swappedRate)
+        const swappedDeviation = Math.abs(swappedTaxable - taxableValue) / Math.max(taxableValue, 1)
+        if (swappedDeviation <= 0.05) {
+          quantity = swappedQty
+          unitPrice = swappedRate
+        } else {
+          // Heuristic: if qty > 100 and unitPrice < 100, swap (qty is likely rate)
+          if (quantity > 100 && unitPrice < 100 && unitPrice > 0) {
+            const tmpQ = quantity; quantity = unitPrice; unitPrice = tmpQ
+          }
+        }
+      }
+    } else {
+      // No taxableValue to validate against — use heuristic:
+      // Qty should be small integer (1–1000), Rate should be larger
+      if (quantity > 1000 && unitPrice < 100) {
+        const tmpQ = quantity; quantity = unitPrice; unitPrice = tmpQ
+      }
+    }
+  }
+
+  // Recompute taxableValue after any swap
+  if (quantity > 0 && unitPrice > 0 && taxableValue <= 0) {
+    taxableValue = round2(quantity * unitPrice)
+  }
+
   // Snap gstRate to standard values
   if (gstRate > 0 && ![5, 12, 18, 28, 0.25, 1.5, 3].includes(gstRate)) {
     // Check if it's close to a standard rate
@@ -354,11 +403,10 @@ function extractEmbeddedTableData(description) {
     }
   }
 
-  // Validate: if qty × unitPrice ≈ taxableValue, we're confident
+  // Final validation: after swap attempt, if still doesn't reconcile → bail
   if (quantity > 0 && unitPrice > 0 && taxableValue > 0) {
     const expected = round2(quantity * unitPrice)
-    if (Math.abs(expected - taxableValue) > taxableValue * 0.05) {
-      // Numbers don't add up — might be wrong assignment, bail out
+    if (Math.abs(expected - taxableValue) > taxableValue * 0.1) {
       return null
     }
   }
@@ -368,11 +416,107 @@ function extractEmbeddedTableData(description) {
     hsn: hsnToken || '',
     quantity,
     unitPrice,
+    uom: uomToken || '',
     taxableValue,
     gstRate,
     igst,
     total,
   }
+}
+
+function normalizeDescriptionKey(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractRowCandidatesFromRawText(rawText) {
+  if (!rawText) return []
+
+  const candidates = []
+  const lines = rawText.split('\n')
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    if (/^(?:sub\s*total|total\b|grand\s*total|amount\s*in\s*words|net\s*payable|round\s*off|bank\s*details|terms)/i.test(trimmed)) continue
+
+    const rowMatch = trimmed.match(/^\s*(\d{1,3})[.)]?\s+([A-Za-z].+)$/)
+    if (!rowMatch) continue
+
+    const sno = parseInt(rowMatch[1], 10)
+    const rest = rowMatch[2]
+
+    // Strip unit suffix tokens (PCS, NOS, KGS, etc.) before parsing numbers
+    const restClean = rest.replace(/\b(PCS|NOS|UNITS?|KGS?|LTRS?|MTRS?|SETS?|PAIRS?|BOXES?|DOZ|DOZEN|EA|PC|NO)\b\.?/gi, ' ')
+    const rawNums = restClean.match(/[\d,]+(?:\.\d+)?/g) || []
+    const nums = rawNums
+      .map((n) => parseNum(n))
+      .filter((n) => Number.isFinite(n) && n > 0)
+
+    // Separate HSN codes (4–8 digit integers ≥ 1000) from quantity/price columns
+    const hsnCandidates = nums.filter((n) => Number.isInteger(n) && n >= 1000 && n <= 99999999)
+    const nonHsnNums = nums.filter((n) => !hsnCandidates.includes(n) || n < 1000)
+
+    // Remove trailing numeric columns from the text to isolate description.
+    const desc = rest
+      .replace(/\s+[\d,]+(?:\.\d+)?(?:\s+[A-Za-z]{2,6})?(?:\s+[\d,]+(?:\.\d+)?){1,8}\s*$/, '')
+      .replace(/^\|+\s*/, '')
+      .trim()
+
+    if (!/[A-Za-z]/.test(desc)) continue
+
+    let quantity = 0
+    let unitPrice = 0
+    let amount = 0
+
+    // Heuristic mapping for common invoice rows using nonHsnNums (HSN stripped)
+    // Apply column-swap validation: qty × rate must ≈ amount (last numeric column)
+    if (nonHsnNums.length >= 3) {
+      quantity = Math.round(nonHsnNums[0])
+      unitPrice = nonHsnNums[1] || 0
+      amount = nonHsnNums[nonHsnNums.length - 1] || 0
+      // Column-swap check: Qty should be small (1–1000), Rate should be larger
+      if (quantity > 1000 && unitPrice < quantity && unitPrice > 0) {
+        const tmp = quantity; quantity = unitPrice; unitPrice = tmp
+      }
+      // Mathematical validation: qty × rate ≈ amount
+      if (quantity > 0 && unitPrice > 0 && amount > 0) {
+        const computed = round2(quantity * unitPrice)
+        const deviation = Math.abs(computed - amount) / Math.max(amount, 1)
+        if (deviation > 0.1) {
+          // Try swap
+          const swapQ = nonHsnNums[1], swapR = nonHsnNums[0]
+          const swapComputed = round2(swapQ * swapR)
+          if (Math.abs(swapComputed - amount) / Math.max(amount, 1) <= 0.1) {
+            quantity = Math.round(swapQ)
+            unitPrice = swapR
+          }
+        }
+      }
+    } else if (nonHsnNums.length === 2) {
+      quantity = Math.round(nonHsnNums[0])
+      amount = nonHsnNums[1]
+      unitPrice = quantity > 0 ? round2(amount / quantity) : 0
+    } else if (nonHsnNums.length === 1) {
+      quantity = 1
+      amount = nonHsnNums[0]
+      unitPrice = amount
+    }
+
+    candidates.push({
+      sno: Number.isFinite(sno) ? sno : candidates.length + 1,
+      description: desc,
+      quantity: quantity > 0 ? quantity : 1,
+      unitPrice: unitPrice > 0 ? unitPrice : (amount > 0 ? amount : 0),
+      tax: 0,
+      amount: amount > 0 ? amount : (unitPrice > 0 ? unitPrice : 0),
+    })
+  }
+
+  return candidates
 }
 
 /**
@@ -537,6 +681,23 @@ function reconstructLineItems(rawText, existingItems) {
 
       return fixed
     })
+
+    // If OCR merged/under-counted rows, add missing rows based on raw text item lines.
+    const rowCandidates = extractRowCandidatesFromRawText(rawText)
+    if (rowCandidates.length > repaired.length) {
+      const seen = new Set(repaired.map((it) => normalizeDescriptionKey(it.description)))
+      const missingRows = rowCandidates.filter((it) => !seen.has(normalizeDescriptionKey(it.description)))
+
+      if (missingRows.length > 0) {
+        repaired.push(...missingRows)
+        corrections.push({
+          field: 'lineItems',
+          from: `${existingItems.length} rows`,
+          to: `${repaired.length} rows`,
+          rule: `Added ${missingRows.length} missing rows to match item count inferred from description lines`,
+        })
+      }
+    }
 
     return { lineItems: repaired, corrections }
   }

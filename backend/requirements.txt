@@ -1,0 +1,10 @@
+# Python dependencies for the BlockERP OCR worker.
+# Install once with:
+#     python -m pip install -r backend/requirements.txt
+#
+# PaddleOCR-VL (pipeline_version="v1.5") replaces the previous Tesseract.js
+# engine. The first call will download model weights (~1 GB) into the user's
+# PaddleX cache directory.
+
+paddleocr>=3.2.0
+paddlepaddle>=3.0.0

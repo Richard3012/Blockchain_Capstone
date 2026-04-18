@@ -161,8 +161,10 @@ export const whatsappBotService = {
     // Push journal entry to ledger (Cash debit, AR credit)
     try {
       const accounts = await accountingService.getAccounts(companyId)
-      const cashAccount = accounts.find((a) => a.code === '1000')
-      const arAccount = accounts.find((a) => a.code === '1100')
+      const findBy = (subType, fallbackCode) =>
+        accounts.find((a) => a.subType === subType) || accounts.find((a) => a.code === fallbackCode)
+      const cashAccount = findBy('cash', '1000')
+      const arAccount = findBy('receivable', '1100')
 
       if (cashAccount && arAccount) {
         await accountingService.createJournalEntry(companyId, {

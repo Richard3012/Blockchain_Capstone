@@ -1,4 +1,4 @@
-@echo off
+.\START_EVERYTHING_FIXED.bat@echo off
 setlocal
 
 cd /d "%~dp0"

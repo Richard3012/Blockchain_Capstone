@@ -50,6 +50,9 @@ router.post('/ocr/validate', requireAuth, invoiceScannerController.ocrValidate)
 // Run intelligence correction layers
 router.post('/ocr/correct', requireAuth, invoiceScannerController.ocrCorrect)
 
+// AI deep re-extraction using Claude (extended thinking, column-swap fix)
+router.post('/ocr/ai-reextract', requireAuth, invoiceScannerController.aiReExtract)
+
 // Record user correction (learning layer)
 router.post('/corrections', requireAuth, invoiceScannerController.recordCorrection)
 

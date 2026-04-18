@@ -8,6 +8,18 @@ const getCurrentFinancialYear = () => {
   return now.getMonth() >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`
 }
 
+// Indian TDS quarter: Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar
+const getCurrentTDSQuarter = () => {
+  const m = new Date().getMonth() + 1
+  if (m >= 4 && m <= 6) return 1
+  if (m >= 7 && m <= 9) return 2
+  if (m >= 10 && m <= 12) return 3
+  return 4
+}
+
+const QUARTER_RANGES = { 1: 'Apr–Jun', 2: 'Jul–Sep', 3: 'Oct–Dec', 4: 'Jan–Mar' }
+const FORM_26Q_DUE = { 1: 'Jul 31', 2: 'Oct 31', 3: 'Jan 31', 4: 'May 31' }
+
 export default function TDSManagement() {
   const addToast = useStore((s) => s.addToast)
   const [tab, setTab] = useState('entries')
@@ -18,7 +30,7 @@ export default function TDSManagement() {
   const [showNewDeduction, setShowNewDeduction] = useState(false)
   const [calcResult, setCalcResult] = useState(null)
   const [fy, setFy] = useState(getCurrentFinancialYear)
-  const [quarter, setQuarter] = useState(() => Math.ceil((new Date().getMonth() + 1) / 3))
+  const [quarter, setQuarter] = useState(getCurrentTDSQuarter)
   const [form, setForm] = useState({ section: '', deductee: '', deducteePAN: '', paymentAmount: '', tdsRate: '', tdsAmount: '', paymentDate: new Date().toISOString().split('T')[0] })
 
   useEffect(() => { loadSections() }, [])
@@ -90,7 +102,7 @@ export default function TDSManagement() {
           <input value={fy} onChange={(e) => setFy(e.target.value)} className="border border-border rounded-lg px-2 py-1.5 text-sm w-28" />
           <label className="text-sm text-text-secondary">Q:</label>
           <select value={quarter} onChange={(e) => setQuarter(Number(e.target.value))} className="border border-border rounded-lg px-2 py-1.5 text-sm">
-            {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q}</option>)}
+            {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q} ({QUARTER_RANGES[q]})</option>)}
           </select>
         </div>
       </div>
@@ -123,6 +135,15 @@ export default function TDSManagement() {
 
       {!loading && tab === 'quarterly' && quarterly && (
         <div className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <p className="text-sm font-semibold text-blue-900">FY {quarterly.financialYear} · Q{quarterly.quarter} ({QUARTER_RANGES[quarterly.quarter]})</p>
+              <p className="text-xs text-blue-700 mt-1">Form 26Q filing due: <span className="font-semibold">{FORM_26Q_DUE[quarterly.quarter]}</span></p>
+            </div>
+            {quarterly.pendingAmount > 0 && (
+              <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-semibold">{fmt(quarterly.pendingAmount)} pending deposit</span>
+            )}
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: 'Entries', value: quarterly.entryCount },

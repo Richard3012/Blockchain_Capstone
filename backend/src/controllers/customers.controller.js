@@ -8,6 +8,7 @@ import { logger } from '../utils/logger.js'
 const customerSchema = z.object({
   code: z.string().min(2),
   name: z.string().min(2),
+  company: z.string().optional().or(z.literal('')),
   email: z.string().email().optional().or(z.literal('')),
   phone: z.string().optional(),
   billingAddress: z.string().optional(),

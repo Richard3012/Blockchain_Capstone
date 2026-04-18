@@ -808,10 +808,12 @@ export const invoiceScannerService = {
       let journalEntry = null
       try {
         const accounts = await accountingService.getAccounts(companyId)
-        const apAccount = accounts.find((a) => a.code === '2000')
-        const invAccount = accounts.find((a) => a.code === '1200')
-        const gstAccount = accounts.find((a) => a.code === '2100')
-        const cogsAccount = accounts.find((a) => a.code === '5000')
+        const findBy = (subType, fallbackCode) =>
+          accounts.find((a) => a.subType === subType) || accounts.find((a) => a.code === fallbackCode)
+        const apAccount = findBy('payable', '2000')
+        const invAccount = findBy('inventory', '1200')
+        const gstAccount = findBy('tax', '2100')
+        const cogsAccount = findBy('cogs', '5000')
         const debitAccount = invAccount || cogsAccount
 
         if (apAccount && debitAccount && parsed.totalAmount > 0) {

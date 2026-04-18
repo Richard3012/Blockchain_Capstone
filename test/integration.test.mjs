@@ -469,6 +469,59 @@ async function accountingTests() {
     const res = await auth(request.get('/api/accounting/trial-balance')).expect(200)
     assert(res.body.data, 'report returned')
   })
+
+  await run('GET /api/accounting/templates lists country COA templates', async () => {
+    const res = await auth(request.get('/api/accounting/templates')).expect(200)
+    assert(Array.isArray(res.body.data), 'templates list')
+    assert(res.body.data.find(t => t.code === 'IN'), 'IN template present')
+  })
+
+  await run('GET /api/accounting/accounts/tree returns hierarchical structure', async () => {
+    const res = await auth(request.get('/api/accounting/accounts/tree')).expect(200)
+    assert(Array.isArray(res.body.data), 'tree is array of roots')
+    const flat = (await auth(request.get('/api/accounting/accounts'))).body.data
+    const hasChildren = res.body.data.some(r => Array.isArray(r.children))
+    assert(hasChildren, 'tree nodes have children arrays')
+    assert(res.body.data.length <= flat.length, 'tree roots <= flat count')
+  })
+
+  await run('POST /api/accounting/journal-entries/:id/reverse mirrors original', async () => {
+    const accounts = (await auth(request.get('/api/accounting/accounts'))).body.data
+    const cash = accounts.find(a => a.subType === 'cash') || accounts.find(a => a.code === '1000')
+    const revenue = accounts.find(a => a.type === 'revenue' && a.subType !== 'group')
+    const created = await auth(request.post('/api/accounting/journal-entries'))
+      .send({
+        date: new Date().toISOString(),
+        description: 'Reversal source entry',
+        lines: [
+          { account: cash._id, debit: 1000, credit: 0 },
+          { account: revenue._id, debit: 0, credit: 1000 },
+        ],
+      })
+      .expect(201)
+    const id = created.body.data._id
+    const reversed = await auth(request.post(`/api/accounting/journal-entries/${id}/reverse`)).expect(200)
+    const lines = reversed.body.data.lines
+    assert(lines.length === 2, 'reversal has same line count')
+    const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0)
+    const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0)
+    assert(Math.abs(totalDebit - totalCredit) < 0.01, 'reversal is balanced')
+    assert(reversed.body.data.source === 'reversal', 'source = reversal')
+  })
+
+  await run('GET /api/accounting/periods lists fiscal periods auto-created from entries', async () => {
+    const res = await auth(request.get('/api/accounting/periods')).expect(200)
+    assert(Array.isArray(res.body.data), 'periods list')
+    assert(res.body.data.length > 0, 'at least one period exists from prior entries')
+  })
+
+  await run('POST /api/accounting/dimensions creates a cost center', async () => {
+    const res = await auth(request.post('/api/accounting/dimensions'))
+      .send({ kind: 'cost_center', code: 'CC-TEST', name: 'Test Cost Center' })
+      .expect(201)
+    assert(res.body.data._id, 'dimension created')
+    assert(res.body.data.kind === 'cost_center', 'correct kind')
+  })
 }
 
 // ── GST Compliance ──────────────────────────────────────────────────

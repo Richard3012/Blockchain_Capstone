@@ -1,8 +1,8 @@
 import { createRequire } from 'module'
 import mammoth from 'mammoth'
-import Tesseract from 'tesseract.js'
 
 import { logger } from '../utils/logger.js'
+import { paddleOcrService } from './paddle-ocr.service.js'
 
 // pdf-parse v2 exports PDFParse class; v1 exports a plain function
 const require = createRequire(import.meta.url)
@@ -89,9 +89,31 @@ export const fileExtractorService = {
 
   async extractFromPDF(buffer) {
     logger.info('file_extractor.pdf_start')
-    const data = await parsePDF(buffer)
-    const text = data.text || ''
-    logger.info('file_extractor.pdf_done', { pages: data.numpages || data.pages || 0, chars: text.length })
+    let text = ''
+    try {
+      const data = await parsePDF(buffer)
+      text = data.text || ''
+      logger.info('file_extractor.pdf_done', { pages: data.numpages || data.pages || 0, chars: text.length })
+    } catch (err) {
+      logger.warn('file_extractor.pdf_parse_failed', { error: err.message })
+    }
+
+    // If text extraction failed or returned very little text, render PDF to image and OCR
+    if (text.replace(/\s/g, '').length < 20) {
+      logger.info('file_extractor.pdf_ocr_fallback', { extractedChars: text.length })
+      try {
+        const sharp = (await import('sharp')).default
+        // sharp can render the first page of a PDF to a PNG image
+        const imgBuffer = await sharp(buffer, { density: 300 })
+          .png()
+          .toBuffer()
+        logger.info('file_extractor.pdf_rendered_to_image', { imgSize: imgBuffer.length })
+        text = await this.extractFromImage(imgBuffer)
+      } catch (renderErr) {
+        logger.warn('file_extractor.pdf_render_fallback_failed', { error: renderErr.message })
+        if (!text) throw renderErr
+      }
+    }
     return text
   },
 
@@ -121,19 +143,12 @@ export const fileExtractorService = {
       // Fall through to standard single-pass OCR
     }
 
-    const { data } = await Tesseract.recognize(buffer, 'eng', {
-      logger: (m) => {
-        if (m.status) logger.debug('file_extractor.ocr_progress', { status: m.status, progress: m.progress })
-      },
-      tessedit_pageseg_mode: '6',           // Assume uniform block of text
-      preserve_interword_spaces: '1',       // Keep spacing for table-like layouts
-      tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,:-/#@%₹ ()\n',
-    })
-    logger.info('file_extractor.ocr_done', { chars: data.text.length, confidence: data.confidence })
-    if (data.confidence < 30) {
-      logger.warn('file_extractor.ocr_low_confidence', { confidence: data.confidence })
+    const result = await paddleOcrService.recognize(buffer)
+    logger.info('file_extractor.ocr_done', { chars: result.text.length, confidence: result.confidence })
+    if (result.confidence < 30) {
+      logger.warn('file_extractor.ocr_low_confidence', { confidence: result.confidence })
     }
-    return data.text
+    return result.text
   },
 
   async extractFromExcel(buffer) {

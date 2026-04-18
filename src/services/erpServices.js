@@ -15,14 +15,23 @@ export const gstService = {
 
 export const accountingService = {
   initializeAccounts() { return apiClient.post('/accounting/initialize') },
+  listTemplates() { return apiClient.get('/accounting/templates') },
+  initializeFromTemplate(code) { return apiClient.post(`/accounting/initialize/${code}`) },
   getAccounts() { return apiClient.get('/accounting/accounts') },
+  getAccountsTree() { return apiClient.get('/accounting/accounts/tree') },
   createAccount(data) { return apiClient.post('/accounting/accounts', data) },
   createJournalEntry(data) { return apiClient.post('/accounting/journal-entries', data) },
+  postJournalEntry(id) { return apiClient.post(`/accounting/journal-entries/${id}/post`) },
+  reverseJournalEntry(id) { return apiClient.post(`/accounting/journal-entries/${id}/reverse`) },
   getJournalEntries() { return apiClient.get('/accounting/journal-entries') },
   getJournalEntry(id) { return apiClient.get(`/accounting/journal-entries/${id}`) },
   getTrialBalance() { return apiClient.get('/accounting/trial-balance') },
   getProfitAndLoss() { return apiClient.get('/accounting/profit-and-loss') },
   getBalanceSheet() { return apiClient.get('/accounting/balance-sheet') },
+  listDimensions(kind) { return apiClient.get(`/accounting/dimensions${kind ? `?kind=${kind}` : ''}`) },
+  createDimension(data) { return apiClient.post('/accounting/dimensions', data) },
+  listPeriods() { return apiClient.get('/accounting/periods') },
+  closePeriod(id) { return apiClient.post(`/accounting/periods/${id}/close`) },
 }
 
 export const tdsService = {

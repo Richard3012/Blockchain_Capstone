@@ -3,7 +3,7 @@
  * ──────────────────────────────────────
  * PRIMARY:  Google Cloud Vision DOCUMENT_TEXT_DETECTION
  *   - Superior accuracy, word-level bounding boxes, high confidence
- * FALLBACK: Tesseract.js multi-pass (when Vision API key not set)
+ * FALLBACK: PaddleOCR-VL (pipeline_version v1.5) via Python subprocess
  *
  * Image preprocessing via sharp:
  *   - Grayscale conversion + normalization
@@ -11,9 +11,9 @@
  */
 
 import sharp from 'sharp'
-import Tesseract from 'tesseract.js'
 import { logger } from '../utils/logger.js'
 import { googleVisionService } from './google-vision.service.js'
+import { paddleOcrService } from './paddle-ocr.service.js'
 
 /* ─── Image Enhancement ─────────────────────────────────────────── */
 
@@ -29,87 +29,25 @@ async function enhanceForVision(buffer) {
   }
 }
 
-/* ─── Tesseract OCR with multiple page segmentation modes ─────── */
+/* ─── PaddleOCR-VL single-shot (replaces Tesseract multi-pass) ─── */
 
-async function runTesseractOCR(buffer, variantName, pagesegMode = '6') {
-  const { data } = await Tesseract.recognize(buffer, 'eng', {
-    tessedit_pageseg_mode: pagesegMode,
-    preserve_interword_spaces: '1',
+async function paddleSinglePass(buffer, emitProgress) {
+  emitProgress?.('Running PaddleOCR-VL (pipeline_version=v1.5)...')
+  // PaddleOCR-VL does its own internal preprocessing/orientation, so we
+  // hand it the original bytes rather than a thresholded variant.
+  const result = await paddleOcrService.recognize(buffer)
+  logger.info('ocr_preprocess.paddleocr_vl_done', {
+    confidence: result.confidence,
+    wordCount: result.words?.length || 0,
+    chars: result.text.length,
+    durationMs: result.durationMs,
   })
   return {
-    text: data.text || '',
-    confidence: data.confidence || 0,
-    variant: variantName,
-    words: (data.words || []).map((w) => ({
-      text: w.text,
-      bbox: w.bbox || { x0: 0, y0: 0, x1: 0, y1: 0 },
-      confidence: w.confidence || 0,
-      x: w.bbox?.x0 || 0,
-      y: w.bbox?.y0 || 0,
-      width: ((w.bbox?.x1 || 0) - (w.bbox?.x0 || 0)),
-      height: ((w.bbox?.y1 || 0) - (w.bbox?.y0 || 0)),
-    })),
+    text: result.text,
+    confidence: result.confidence,
+    variant: result.variant,
+    words: result.words,
   }
-}
-
-async function tesseractMultiPass(buffer, emitProgress) {
-  // Prepare image variants
-  const variants = [{ name: 'original', buffer }]
-  try {
-    variants.push({ name: 'enhanced', buffer: await enhanceForVision(buffer) })
-  } catch { /* ignore */ }
-  try {
-    variants.push({
-      name: 'threshold',
-      buffer: await sharp(buffer).grayscale().normalize().threshold(140).toBuffer(),
-    })
-  } catch { /* ignore */ }
-  try {
-    // High-contrast variant for table detection
-    variants.push({
-      name: 'highcontrast',
-      buffer: await sharp(buffer).grayscale().normalize().linear(1.5, -20).sharpen({ sigma: 1.5 }).toBuffer(),
-    })
-  } catch { /* ignore */ }
-
-  emitProgress?.(`Running Tesseract multi-pass OCR (${variants.length} variants, 2 PSM modes)...`)
-
-  // Run each variant with TWO page segmentation modes:
-  // PSM 6 = single uniform block (good for structured text)
-  // PSM 4 = single column of variable-size text (better for tables)
-  const psmModes = ['6', '4']
-  const allRuns = []
-  for (const v of variants) {
-    for (const psm of psmModes) {
-      allRuns.push(
-        runTesseractOCR(v.buffer, `${v.name}_psm${psm}`, psm)
-          .catch(() => ({ text: '', confidence: 0, variant: `${v.name}_psm${psm}`, words: [] })),
-      )
-    }
-  }
-
-  const results = await Promise.all(allRuns)
-  
-  // Pick best by: most words with valid bounding boxes, then by confidence
-  const scored = results
-    .filter((r) => r.text.length > 10)
-    .map((r) => {
-      const validWords = r.words.filter((w) => w.bbox && (w.bbox.x1 - w.bbox.x0) > 0)
-      return { ...r, validWordCount: validWords.length, score: validWords.length * 0.5 + r.confidence * 0.5 }
-    })
-    .sort((a, b) => b.score - a.score)
-
-  const best = scored[0] || results[0] || { text: '', confidence: 0, variant: 'none', words: [] }
-
-  logger.info('ocr_preprocess.tesseract_multipass', {
-    variantsRun: allRuns.length,
-    bestVariant: best.variant,
-    bestConfidence: best.confidence,
-    bestWordCount: best.words?.length || 0,
-    validWordCount: best.validWordCount || 0,
-  })
-
-  return best
 }
 
 /* ─── Exported Service ──────────────────────────────────────────── */
@@ -122,7 +60,7 @@ export const ocrPreprocessService = {
   /**
    * Main entry: run OCR on an image buffer.
    *   - If GOOGLE_VISION_API_KEY is set → Google Cloud Vision (primary)
-   *   - Else → Tesseract.js multi-pass (fallback)
+   *   - Else → PaddleOCR-VL pipeline_version=v1.5 (fallback)
    *
    * @param {Buffer} buffer - Raw image file content
    * @param {object} [options] - { emitProgress }
@@ -160,23 +98,22 @@ export const ocrPreprocessService = {
         }
       } catch (e) {
         logger.error('ocr_preprocess.google_vision_failed', { error: e.message })
-        emitProgress?.(`Vision API failed (${e.message}), falling back to Tesseract...`)
-        // Fall through to Tesseract
+        emitProgress?.(`Vision API failed (${e.message}), falling back to PaddleOCR-VL...`)
+        // Fall through to PaddleOCR-VL
       }
     }
 
-    // ────── TESSERACT.JS FALLBACK ──────
-    emitProgress?.('Running Tesseract.js OCR...')
-    const best = await tesseractMultiPass(buffer, emitProgress)
+    // ────── PADDLEOCR-VL FALLBACK ──────
+    const best = await paddleSinglePass(buffer, emitProgress)
     const durationMs = Date.now() - startTime
 
-    logger.info('ocr_preprocess.tesseract_done', {
+    logger.info('ocr_preprocess.paddleocr_done', {
       variant: best.variant,
       confidence: best.confidence,
       durationMs,
     })
 
-    emitProgress?.(`Tesseract: ${best.variant} (${best.confidence.toFixed(1)}% confidence)`)
+    emitProgress?.(`PaddleOCR-VL: ${best.variant} (${best.confidence.toFixed(1)}% confidence)`)
 
     return {
       text: best.text,
@@ -197,7 +134,8 @@ export const ocrPreprocessService = {
         return { text: result.text, confidence: result.confidence, variant: 'google_vision', words: result.words }
       } catch { /* fallback */ }
     }
-    return runTesseractOCR(enhanced, 'enhanced')
+    const paddle = await paddleOcrService.recognize(enhanced)
+    return { text: paddle.text, confidence: paddle.confidence, variant: paddle.variant, words: paddle.words }
   },
 
   async enhanceImage(buffer) {

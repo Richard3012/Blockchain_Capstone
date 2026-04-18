@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useStore } from '../store/useStore'
-import { useLiveData } from '../hooks/useLiveData'
+import { useLiveData, invalidateLiveData } from '../hooks/useLiveData'
+import { apiClient } from '../services/api/client'
 import Badge from '../components/UI/Badge'
 import Button from '../components/UI/Button'
 import Modal from '../components/UI/Modal'
@@ -18,12 +19,13 @@ function getAvatarColor(name) {
 export default function Customers() {
   useLiveData('customers')
   const customers = useStore((state) => state.customers)
-  const addCustomer = useStore((state) => state.addCustomer)
+  const setCustomers = useStore((state) => state.setCustomers)
   const addToast = useStore((state) => state.addToast)
   const searchQuery = useStore((state) => state.searchQuery)
   const getCustomerStats = useStore((state) => state.getCustomerStats)
 
   const [showModal, setShowModal] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [localSearch, setLocalSearch] = useState('')
   const [newCustomer, setNewCustomer] = useState({
     name: '',
@@ -45,22 +47,44 @@ export default function Customers() {
     )
   }, [customers, localSearch, searchQuery])
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (!newCustomer.name || !newCustomer.company || !newCustomer.email) {
       addToast('Please fill in all required fields', 'warning')
       return
     }
-    addCustomer({
-      ...newCustomer,
-      orders: 0,
-      totalSpent: 0,
-      lifetimeValue: 0,
-      segment: 'individual'
-    })
-    addToast(`Customer ${newCustomer.name} added successfully`, 'success')
-    setNewCustomer({ name: '', company: '', email: '', phone: '', status: 'active' })
-    setShowModal(false)
+    setSubmitting(true)
+    try {
+      const code = `CUST-${Date.now().toString(36).toUpperCase()}`
+      await apiClient.post('/customers', {
+        code,
+        name: newCustomer.name,
+        company: newCustomer.company,
+        email: newCustomer.email,
+        phone: newCustomer.phone,
+      })
+      invalidateLiveData('customers')
+      const rows = await apiClient.get('/customers')
+      setCustomers(rows.map((c) => ({
+        id: c._id,
+        name: c.name,
+        company: c.company || '-',
+        email: c.email,
+        phone: c.phone,
+        status: c.isActive !== false ? 'active' : 'inactive',
+        orders: c.totalOrders || 0,
+        totalSpent: c.totalPurchases || 0,
+        lifetimeValue: c.totalPurchases || 0,
+        segment: c.segment || 'individual',
+      })))
+      addToast(`Customer ${newCustomer.name} added successfully`, 'success')
+      setNewCustomer({ name: '', company: '', email: '', phone: '', status: 'active' })
+      setShowModal(false)
+    } catch (err) {
+      addToast(err.message || 'Failed to add customer', 'error')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -220,8 +244,8 @@ export default function Customers() {
               <Button type="button" variant="secondary" onClick={() => setShowModal(false)} className="flex-1">
                 Cancel
               </Button>
-              <Button type="submit" className="flex-1">
-                Add Customer
+              <Button type="submit" className="flex-1" disabled={submitting}>
+                {submitting ? 'Saving…' : 'Add Customer'}
               </Button>
             </div>
           </form>

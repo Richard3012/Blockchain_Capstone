@@ -7,6 +7,7 @@ const customerSchema = new mongoose.Schema(
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true, index: true },
     code: { type: String, required: true, trim: true, unique: true },
     name: { type: String, required: true, trim: true },
+    company: { type: String, trim: true, default: '' },
     email: { type: String, trim: true, lowercase: true },
     phone: { type: String, trim: true },
     billingAddress: { type: String, trim: true },
