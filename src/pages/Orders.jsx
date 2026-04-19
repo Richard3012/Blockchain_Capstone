@@ -336,13 +336,13 @@ export default function Orders() {
                     <div><label className="text-sm text-text-muted">Customer</label><p className="font-medium text-text-primary">{orderData.customer?.name || selectedOrder.customer}</p></div>
                     <div><label className="text-sm text-text-muted">Date</label><p className="font-medium text-text-primary">{formatDate(orderData.createdAt || selectedOrder.date)}</p></div>
                     <div><label className="text-sm text-text-muted">Total</label><p className="font-medium text-text-primary">{formatCurrency(orderData.totalAmount || selectedOrder.total)}</p></div>
-                    <div><label className="text-sm text-text-muted">Integrity</label><div className="mt-1">{getIntegrityBadge(orderData.verificationStatus || selectedOrder.verificationStatus)}</div></div>
+                    <div><label className="text-sm text-text-muted">Integrity</label><div className="mt-1">{getIntegrityBadge((latestTrackedModification ? 'failed' : (orderData.verificationStatus || selectedOrder.verificationStatus)))}</div></div>
                   </div>
 
-                  {String(orderData.verificationStatus || selectedOrder.verificationStatus).toLowerCase() === 'failed' && (
+                  {(String(orderData.verificationStatus || selectedOrder.verificationStatus).toLowerCase() === 'failed' || !!latestTrackedModification) && (
                     <div className="rounded-lg border border-red/30 bg-red/5 px-4 py-3 text-sm text-red space-y-2">
                       <p className="font-semibold">Tampering detected. This order no longer matches the originally anchored trusted version.</p>
-                      <p>Detected source: {getSourceLabel(orderData.tamperSource || selectedOrder.tamperSource)}</p>
+                      <p>Detected source: {getSourceLabel(orderData.tamperSource || selectedOrder.tamperSource || (latestTrackedModification ? 'application_user' : null))}</p>
                       {(orderData.tamperSource || selectedOrder.tamperSource) === 'external_or_untracked' && (
                         <p>No trusted in-app modification trail was found for this mismatch, so it appears to have been changed directly in MongoDB or outside the normal application flow.</p>
                       )}

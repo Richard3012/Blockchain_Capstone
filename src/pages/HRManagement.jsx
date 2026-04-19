@@ -37,7 +37,8 @@ const Badge = ({ color, children, onClick }) => {
 }
 
 const statusColor = (s) => ({ active: 'green', 'on-leave': 'orange', pending: 'yellow', approved: 'green', rejected: 'red', cancelled: 'gray' })[s] || 'gray'
-const attendanceColor = (s) => ({ present: 'green', absent: 'red', 'half-day': 'orange', late: 'yellow', 'on-leave': 'indigo', holiday: 'purple' })[s] || 'gray'
+const attendanceVariant = (s) => ({ present: 'success', absent: 'error', 'half-day': 'warning', late: 'warning', 'on-leave': 'info', holiday: 'primary' })[s] || 'default'
+const attendanceColor = attendanceVariant
 
 export default function HRManagement() {
   const searchQuery = useStore((s) => s.searchQuery)
@@ -453,7 +454,7 @@ export default function HRManagement() {
                         <td className="p-3 text-text-secondary">{log.checkOut ? new Date(log.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                         <td className="p-3 text-right font-semibold">{log.hoursWorked?.toFixed(1) || '0.0'}</td>
                         <td className="p-3 text-right">{log.overtimeHours > 0 ? <Badge color="purple">{log.overtimeHours.toFixed(1)}h</Badge> : '—'}</td>
-                        <td className="p-3 text-center"><Badge color={attendanceColor(log.status)}>{log.status}</Badge></td>
+                        <td className="p-3 text-center"><Badge variant={attendanceVariant(log.status)}>{log.status}</Badge></td>
                         <td className="p-3 text-right text-xs text-text-muted">{log.corrections?.length || 0}</td>
                         <td className="p-3 text-center">
                           <button onClick={() => openCorrection(log)} className="text-blue-600 hover:text-blue-800 text-xs font-medium">Correct</button>

@@ -71,8 +71,12 @@ export default function ProjectManagement() {
   }
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.manager.trim() || !form.budget) {
-      addToast('Fill required fields', 'error')
+    const missing = []
+    if (!form.name.trim()) missing.push('Project Name')
+    if (!form.manager.trim()) missing.push('Project Manager')
+    if (!form.budget) missing.push('Budget')
+    if (missing.length) {
+      addToast(`Please fill: ${missing.join(', ')}`, 'error')
       return
     }
     setSaving(true)
@@ -162,10 +166,10 @@ export default function ProjectManagement() {
                   }`}>{project.status}</span>
                 </div>
                 <div className="mt-3 flex items-center gap-3">
-                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${project.progress >= 90 ? 'bg-green-500' : project.progress >= 50 ? 'bg-blue-500' : 'bg-yellow-500'}`} style={{ width: `${project.progress || 0}%` }} />
+                  <div className="flex-1 h-3 bg-gray-200 dark:bg-gray-700/60 rounded-full overflow-hidden ring-1 ring-border/60 shadow-inner">
+                    <div className={`h-full rounded-full transition-all ${project.progress >= 90 ? 'bg-gradient-to-r from-green-400 to-green-600' : project.progress >= 50 ? 'bg-gradient-to-r from-blue-400 to-blue-600' : project.progress >= 25 ? 'bg-gradient-to-r from-yellow-300 to-yellow-500' : 'bg-gradient-to-r from-red-400 to-red-600'} shadow-sm`} style={{ width: `${Math.max(project.progress || 0, 4)}%` }} />
                   </div>
-                  <span className="text-xs font-medium text-text-primary w-10 text-right">{project.progress || 0}%</span>
+                  <span className={`inline-flex items-center justify-center text-xs font-bold w-14 px-2 py-1 rounded-full text-white shadow ${project.progress >= 90 ? 'bg-green-600' : project.progress >= 50 ? 'bg-blue-600' : project.progress >= 25 ? 'bg-yellow-500' : 'bg-red-500'}`}>{project.progress || 0}%</span>
                 </div>
                 <div className="mt-2 flex gap-4 text-xs text-text-muted">
                   <span>Budget: {fmt(project.budget)}</span>
@@ -209,7 +213,7 @@ export default function ProjectManagement() {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1">Project Name *</label>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="Project name" />
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`w-full px-3 py-2 border rounded-lg text-sm ${!form.name.trim() ? 'border-red-400' : 'border-border'}`} placeholder="Project name" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -218,13 +222,13 @@ export default function ProjectManagement() {
             </div>
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1">Project Manager *</label>
-              <input value={form.manager} onChange={(e) => setForm({ ...form, manager: e.target.value })} className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="Manager name" />
+              <input value={form.manager} onChange={(e) => setForm({ ...form, manager: e.target.value })} className={`w-full px-3 py-2 border rounded-lg text-sm ${!form.manager.trim() ? 'border-red-400' : 'border-border'}`} placeholder="Manager name" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1">Budget (₹) *</label>
-              <input type="number" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} className="w-full px-3 py-2 border border-border rounded-lg text-sm" placeholder="Total budget" />
+              <input type="number" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} className={`w-full px-3 py-2 border rounded-lg text-sm ${!form.budget ? 'border-red-400' : 'border-border'}`} placeholder="Total budget" />
             </div>
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1">Status</label>
