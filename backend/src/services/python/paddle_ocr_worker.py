@@ -56,7 +56,49 @@ def _extract_words(payload: Any) -> List[Dict[str, Any]]:
     if not isinstance(payload, dict):
         return words
 
-    # PaddleOCR-VL flat layout
+    # PaddleOCR-VL v1.5 layout-parsing structure:
+    #   parsing_res_list[i] = {
+    #     block_label, block_content, block_bbox: [x0,y0,x1,y1],
+    #     block_polygon_points: [[x,y], ...], block_id, ...
+    #   }
+    blocks = payload.get("parsing_res_list")
+    layout_boxes = (payload.get("layout_det_res") or {}).get("boxes") or []
+    # Build a quick id→score map from layout_det_res when available
+    score_by_order: Dict[int, float] = {}
+    for b in layout_boxes:
+        if isinstance(b, dict) and "order" in b and "score" in b:
+            try:
+                score_by_order[int(b["order"])] = float(b["score"])
+            except Exception:
+                pass
+
+    if isinstance(blocks, list) and blocks:
+        for blk in blocks:
+            if not isinstance(blk, dict):
+                continue
+            text = blk.get("block_content") or blk.get("text") or blk.get("content") or ""
+            if not text:
+                continue
+            poly = blk.get("block_polygon_points") or blk.get("polygon_points") or blk.get("polygon") or blk.get("poly")
+            box = blk.get("block_bbox") or blk.get("bbox") or blk.get("box")
+            if poly:
+                bbox = _bbox_from_polygon(poly)
+            elif isinstance(box, (list, tuple)) and len(box) >= 4:
+                bbox = {
+                    "x0": float(box[0]), "y0": float(box[1]),
+                    "x1": float(box[2]), "y1": float(box[3]),
+                }
+            else:
+                bbox = {"x0": 0.0, "y0": 0.0, "x1": 0.0, "y1": 0.0}
+            order = blk.get("block_order")
+            try:
+                conf = score_by_order.get(int(order), 0.9) * 100.0
+            except Exception:
+                conf = 90.0
+            words.append({"text": str(text), "bbox": bbox, "confidence": conf})
+        return words
+
+    # Legacy / flat layout (older PaddleOCR pipelines)
     texts = payload.get("rec_texts") or payload.get("texts")
     scores = payload.get("rec_scores") or payload.get("scores") or []
     polys = payload.get("rec_polys") or payload.get("dt_polys") or payload.get("polys") or []
@@ -77,26 +119,6 @@ def _extract_words(payload: Any) -> List[Dict[str, Any]]:
                 bbox = {"x0": 0.0, "y0": 0.0, "x1": 0.0, "y1": 0.0}
             conf = _safe_float(scores[i] if i < len(scores) else 0.9) * 100.0
             words.append({"text": str(txt), "bbox": bbox, "confidence": conf})
-        return words
-
-    # Layout-parsing structure (PP-StructureV3 / PaddleOCR-VL parsing_res_list)
-    blocks = payload.get("parsing_res_list") or payload.get("layout_parsing_res") or []
-    if isinstance(blocks, list):
-        for blk in blocks:
-            if not isinstance(blk, dict):
-                continue
-            text = blk.get("text") or blk.get("content") or ""
-            poly = blk.get("poly") or blk.get("polygon")
-            box = blk.get("bbox") or blk.get("box")
-            if poly:
-                bbox = _bbox_from_polygon(poly)
-            elif isinstance(box, (list, tuple)) and len(box) >= 4:
-                bbox = {"x0": float(box[0]), "y0": float(box[1]), "x1": float(box[2]), "y1": float(box[3])}
-            else:
-                bbox = {"x0": 0.0, "y0": 0.0, "x1": 0.0, "y1": 0.0}
-            conf = _safe_float(blk.get("score") or blk.get("confidence") or 0.9) * 100.0
-            if text:
-                words.append({"text": str(text), "bbox": bbox, "confidence": conf})
     return words
 
 
@@ -146,8 +168,6 @@ def run(image_path: str) -> Dict[str, Any]:
             if hasattr(res, "json"):
                 try:
                     payload = res.json
-                    if callable(payload):
-                        payload = payload()
                 except Exception:
                     payload = None
             if isinstance(payload, dict) and "res" in payload and isinstance(payload["res"], dict):
