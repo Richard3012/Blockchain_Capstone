@@ -63,7 +63,7 @@ export default function Dashboard() {
     activeCustomers: 0,
     pendingOrders: orderStats.pending + orderStats.processing,
     lowStockCount: 0,
-    verifiedRecords: blockchainTxs.filter((tx) => tx.status === 'Verified').length,
+    verifiedRecords: blockchainTxs.filter((tx) => String(tx.status).toLowerCase() === 'confirmed').length,
   }
 
   const kpis = dashboardSummary?.kpis || fallbackKpis

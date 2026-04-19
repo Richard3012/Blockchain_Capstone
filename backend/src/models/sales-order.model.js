@@ -25,6 +25,12 @@ const salesOrderSchema = new mongoose.Schema(
     taxAmount: { type: Number, default: 0, min: 0 },
     totalAmount: { type: Number, default: 0, min: 0 },
     hash: { type: String, trim: true },
+    /** Hash of the first anchored version (immutable baseline). */
+    integrityOriginalHash: { type: String, trim: true },
+    /** Prior chain head concatenated into the current hash (empty for genesis). */
+    integrityPreviousHash: { type: String, trim: true, default: '' },
+    /** JSON string of last canonical payload used for hashing (for field-level diffs). */
+    integritySnapshot: { type: String, trim: true, default: '' },
     documentCid: { type: String, trim: true },
     verificationStatus: { type: String, enum: ['not_requested', 'pending', 'verified', 'failed'], default: 'not_requested' },
     syncStatus: { type: String, enum: ['synced', 'pending_sync'], default: 'synced' },

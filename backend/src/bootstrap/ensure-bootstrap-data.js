@@ -486,8 +486,12 @@ export const ensureBootstrapData = async () => {
   const verificationSeed = [
     { entityType: 'sales_order', entity: orderDocs['SO-DEMO-001'] },
     { entityType: 'sales_order', entity: orderDocs['SO-DEMO-002'] },
+    { entityType: 'sales_order', entity: orderDocs['SO-DEMO-003'] },
+    { entityType: 'sales_order', entity: orderDocs['SO-DEMO-004'] },
     { entityType: 'invoice', entity: invoiceDocs['INV-DEMO-001'] },
+    { entityType: 'invoice', entity: invoiceDocs['INV-DEMO-002'] },
     { entityType: 'invoice', entity: invoiceDocs['INV-DEMO-003'] },
+    { entityType: 'invoice', entity: invoiceDocs['INV-DEMO-004'] },
   ]
 
   for (const item of verificationSeed) {

@@ -27,6 +27,13 @@ export const errorHandler = (error, _req, res, _next) => {
     })
   }
 
+  if (error.name === 'CastError' || String(error.message || '').includes('Cast to ObjectId')) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid record identifier',
+    })
+  }
+
   const statusCode = error.statusCode || 500
 
   res.status(statusCode).json({

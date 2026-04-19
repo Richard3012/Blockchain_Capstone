@@ -49,7 +49,7 @@ export default function Orders() {
   const reloadOrders = async () => {
     invalidateLiveData('orders', 'audit', 'blockchain')
     const rows = await apiClient.get('/orders')
-    setOrders(rows.map((order) => ({
+      setOrders(rows.map((order) => ({
       mongoId: order._id,
       id: order.orderNumber || order._id,
       customer: order.customer?.name || '-',
@@ -60,6 +60,9 @@ export default function Orders() {
       date: order.createdAt,
       blockchainHash: order.blockchainHash || order.hash || '',
       verificationStatus: order.verificationStatus || 'not_requested',
+      tamperSource: order.tamperSource || null,
+      mismatchReasons: order.mismatchReasons || [],
+      fieldDiffs: order.fieldDiffs || [],
     })))
   }
 
@@ -100,10 +103,27 @@ export default function Orders() {
   const formatDate = (value) => (value ? new Date(value).toLocaleDateString() : '-')
   const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : '-')
   const formatCurrency = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(value || 0)
+  const getSourceLabel = (source) => {
+    if (source === 'external_or_untracked') return 'External / outside trusted app flow'
+    if (source === 'application_user') return 'Application-tracked modification'
+    return 'Unclassified'
+  }
 
   const loadOrderDetail = async (order) => {
     const detail = await apiClient.get(`/orders/${order.mongoId}`)
-    setSelectedOrder(order)
+    setSelectedOrder({
+      ...order,
+      customer: detail.customer?.name || order.customer,
+      total: detail.totalAmount || order.total,
+      amount: detail.totalAmount || order.amount,
+      status: String(detail.status || order.status).toLowerCase(),
+      date: detail.createdAt || order.date,
+      blockchainHash: detail.blockchainHash || order.blockchainHash || '',
+      verificationStatus: detail.verificationStatus || order.verificationStatus,
+      tamperSource: detail.tamperSource || order.tamperSource || null,
+      mismatchReasons: detail.mismatchReasons || order.mismatchReasons || [],
+      fieldDiffs: detail.fieldDiffs || order.fieldDiffs || [],
+    })
     setSelectedOrderDetail(detail)
     return detail
   }
@@ -122,8 +142,11 @@ export default function Orders() {
     try {
       const verification = await apiClient.get(`/blockchain/verify/sales_order/${order.mongoId}`)
       await reloadOrders()
-      if (verification.verificationStatus === 'failed') {
+      const status = String(verification.verificationStatus || '').toLowerCase()
+      if (status === 'failed' || verification.mismatchReasons?.length) {
         addToast(`Tampering detected for ${order.id}`, 'error')
+      } else if (status === 'not_requested' || status === 'pending') {
+        addToast(`Integrity check incomplete for ${order.id} (${status})`, 'warning')
       } else {
         addToast(`Integrity verified for ${order.id}`, 'success')
       }
@@ -279,7 +302,7 @@ export default function Orders() {
                       <Button variant="secondary" size="sm" onClick={() => loadOrderDetail(order)}>View Order</Button>
                       <Button variant="secondary" size="sm" onClick={() => handleVerify(order)}>Verify Integrity</Button>
                       {canModifyOrders && <Button variant="secondary" size="sm" onClick={() => openModifyOrder(order)}>Modify Order</Button>}
-                      <Button variant="secondary" size="sm" onClick={() => setActivePage('blockchain')}>View Ledger</Button>
+                      <Button variant="secondary" size="sm" onClick={() => setActivePage('blockchain')}>Verification Ledger</Button>
                       <Button variant="secondary" size="sm" onClick={() => setActivePage('audit')}>View Audit Trail</Button>
                     </div>
                   </td>
@@ -302,16 +325,105 @@ export default function Orders() {
 
       {selectedOrder && (
         <Modal title={`Order ${selectedOrder.id}`} onClose={() => { setSelectedOrder(null); setSelectedOrderDetail(null) }}>
-          <div className="space-y-4">
-            <div><label className="text-sm text-text-muted">Customer</label><p className="font-medium text-text-primary">{selectedOrder.customer}</p></div>
-            <div><label className="text-sm text-text-muted">Date</label><p className="font-medium text-text-primary">{formatDate(selectedOrder.date)}</p></div>
-            <div><label className="text-sm text-text-muted">Total</label><p className="font-medium text-text-primary">{formatCurrency(selectedOrder.total)}</p></div>
-            <div><label className="text-sm text-text-muted">Integrity</label><div className="mt-1">{getIntegrityBadge(selectedOrderDetail?.verificationStatus || selectedOrder.verificationStatus)}</div></div>
-            {String(selectedOrderDetail?.verificationStatus || selectedOrder.verificationStatus).toLowerCase() === 'failed' && (
-              <div className="rounded-lg border border-red/30 bg-red/5 px-4 py-3 text-sm text-red">
-                Tampering detected. This order no longer matches the originally anchored trusted version.
-              </div>
-            )}
+          <div className="space-y-4 max-h-[min(85vh,720px)] overflow-y-auto pr-1">
+            {(() => {
+              const orderData = selectedOrderDetail || selectedOrder
+              const latestTrackedModification = selectedOrderDetail?.auditTrail?.find((entry) => entry.metadata?.changedFields?.length > 0)
+
+              return (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label className="text-sm text-text-muted">Customer</label><p className="font-medium text-text-primary">{orderData.customer?.name || selectedOrder.customer}</p></div>
+                    <div><label className="text-sm text-text-muted">Date</label><p className="font-medium text-text-primary">{formatDate(orderData.createdAt || selectedOrder.date)}</p></div>
+                    <div><label className="text-sm text-text-muted">Total</label><p className="font-medium text-text-primary">{formatCurrency(orderData.totalAmount || selectedOrder.total)}</p></div>
+                    <div><label className="text-sm text-text-muted">Integrity</label><div className="mt-1">{getIntegrityBadge(orderData.verificationStatus || selectedOrder.verificationStatus)}</div></div>
+                  </div>
+
+                  {String(orderData.verificationStatus || selectedOrder.verificationStatus).toLowerCase() === 'failed' && (
+                    <div className="rounded-lg border border-red/30 bg-red/5 px-4 py-3 text-sm text-red space-y-2">
+                      <p className="font-semibold">Tampering detected. This order no longer matches the originally anchored trusted version.</p>
+                      <p>Detected source: {getSourceLabel(orderData.tamperSource || selectedOrder.tamperSource)}</p>
+                      {(orderData.tamperSource || selectedOrder.tamperSource) === 'external_or_untracked' && (
+                        <p>No trusted in-app modification trail was found for this mismatch, so it appears to have been changed directly in MongoDB or outside the normal application flow.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {(orderData.mismatchReasons?.length || 0) > 0 && (
+                    <div className="rounded-xl border border-red/20 bg-red/5 p-4 space-y-3">
+                      <div>
+                        <p className="text-sm text-text-muted">Integrity Mismatches</p>
+                        <p className="text-sm text-text-secondary mt-1">These fields no longer satisfy the original ERP business rules and trusted baseline.</p>
+                      </div>
+                      <div className="space-y-2">
+                        {orderData.mismatchReasons.map((reason, index) => (
+                          <div key={`mismatch-${index}`} className="rounded-lg border border-red/20 bg-white p-3 text-sm">
+                            <p className="font-medium text-text-primary">{reason.field}</p>
+                            <p className="text-text-secondary mt-1">{reason.message}</p>
+                            <p className="text-text-secondary mt-1">Expected: {JSON.stringify(reason.expected)}</p>
+                            <p className="text-text-secondary">Actual: {JSON.stringify(reason.actual)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(orderData.fieldDiffs?.length || selectedOrder.fieldDiffs?.length || 0) > 0 && (
+                    <div className="rounded-xl border border-amber/30 bg-amber/5 p-4 space-y-2">
+                      <p className="text-sm font-medium text-text-primary">Canonical snapshot drift</p>
+                      <p className="text-xs text-text-secondary">Compared to the last anchored payload (highlights likely tampering or untracked edits).</p>
+                      <div className="max-h-48 overflow-y-auto space-y-2 mt-2">
+                        {(orderData.fieldDiffs || selectedOrder.fieldDiffs || []).map((row, index) => (
+                          <div key={`fd-${index}`} className="rounded-lg border border-amber/40 bg-white p-3 text-sm ring-1 ring-amber/20">
+                            <p className="font-medium text-text-primary">{row.field}</p>
+                            <p className="text-text-secondary mt-1 text-xs">Before: {JSON.stringify(row.before)}</p>
+                            <p className="text-text-secondary text-xs">After: {JSON.stringify(row.after)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {latestTrackedModification && (
+                    <div className="rounded-xl border border-border bg-gray-50 p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm text-text-muted">Latest Tracked Modification</p>
+                          <p className="font-semibold text-text-primary">
+                            {latestTrackedModification.actor?.name || '-'} ({latestTrackedModification.metadata?.actorRole || latestTrackedModification.actor?.role || '-'})
+                          </p>
+                        </div>
+                        <p className="text-sm text-text-secondary">{formatDateTime(latestTrackedModification.createdAt)}</p>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <label className="text-sm text-text-muted">Actor Email</label>
+                          <p className="font-medium text-text-primary">{latestTrackedModification.metadata?.actorEmail || latestTrackedModification.actor?.email || '-'}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm text-text-muted">Linked Wallet</label>
+                          <p className="font-mono text-xs text-text-primary break-all">{latestTrackedModification.metadata?.wallet || latestTrackedModification.actor?.linkedWalletAddress || '-'}</p>
+                        </div>
+                      </div>
+                      {latestTrackedModification.metadata?.changedFields?.length > 0 && (
+                        <div>
+                          <label className="text-sm text-text-muted">What Changed</label>
+                          <div className="mt-2 space-y-2">
+                            {latestTrackedModification.metadata.changedFields.map((field) => (
+                              <div key={`summary-${field}`} className="rounded-lg border border-border bg-white p-3 text-sm">
+                                <p className="font-medium text-text-primary">{field}</p>
+                                <p className="text-text-secondary mt-1">Before: {JSON.stringify(latestTrackedModification.metadata?.before?.[field])}</p>
+                                <p className="text-text-secondary">After: {JSON.stringify(latestTrackedModification.metadata?.after?.[field])}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )
+            })()}
             {selectedOrderDetail?.items?.length > 0 && (
               <div>
                 <label className="text-sm text-text-muted">Items</label>

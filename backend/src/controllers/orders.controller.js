@@ -44,12 +44,19 @@ const mapWithVerification = async (companyId, order) => {
     companyId,
     entityType: 'sales_order',
     entity: order,
+    verifiedBy: null,
+    logEvent: false,
   })
 
   return {
     ...order.toObject(),
     blockchainHash: verification.expectedHash || order.hash || '',
     verificationStatus: verification.verificationStatus,
+    tamperSource: verification.tamperSource || null,
+    mismatchReasons: verification.mismatchReasons || [],
+    fieldDiffs: verification.fieldDiffs || [],
+    integrityOriginalHash: verification.originalHash || null,
+    integrityRecomputedHash: verification.recomputedHash || null,
   }
 }
 
@@ -182,7 +189,13 @@ export const ordersController = {
       { _id: req.params.id, companyId: req.user.companyId },
       { status },
       { new: true },
-    )
+    ).populate('customer store createdBy items.product')
+
+    if (!order) {
+      const error = new Error('Sales order not found')
+      error.statusCode = 404
+      throw error
+    }
 
     await auditService.record({
       companyId: req.user.companyId,
@@ -199,7 +212,13 @@ export const ordersController = {
       actor: req.user.email,
     })
 
-    res.json({ success: true, data: await mapWithVerification(req.user.companyId, order) })
+    await verificationService.advanceIntegrityChain({
+      entityType: 'sales_order',
+      entity: order,
+    })
+
+    const refreshed = await SalesOrder.findOne({ _id: order._id, companyId: req.user.companyId }).populate('customer store createdBy items.product')
+    res.json({ success: true, data: await mapWithVerification(req.user.companyId, refreshed) })
   }),
 
   update: asyncHandler(async (req, res) => {
@@ -243,6 +262,11 @@ export const ordersController = {
 
     order.totalAmount = (order.subtotal || 0) + (order.taxAmount || 0)
     await order.save()
+
+    await verificationService.advanceIntegrityChain({
+      entityType: 'sales_order',
+      entity: order,
+    })
 
     const after = {
       dueDate: order.dueDate ? new Date(order.dueDate).toISOString() : null,

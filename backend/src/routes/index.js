@@ -21,6 +21,7 @@ import procurementRouter from './procurement.routes.js'
 import tdsRouter from './tds.routes.js'
 import walletRouter from './wallet.routes.js'
 import whatsappBotRouter from './whatsapp-bot.routes.js'
+import verificationEventsRouter from './verification-events.routes.js'
 
 const router = Router()
 
@@ -38,6 +39,7 @@ router.use('/invoices', invoicesRouter)
 router.use('/audit', auditRouter)
 router.use('/dashboard', dashboardRouter)
 router.use('/blockchain', blockchainRouter)
+router.use('/verification-events', verificationEventsRouter)
 router.use('/accounting', accountingRouter)
 router.use('/gst', gstRouter)
 router.use('/hr', hrRouter)

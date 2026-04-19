@@ -48,18 +48,10 @@ export const invoicesController = {
       createdBy: req.user._id,
     })
 
-    const document = {
-      invoiceId: invoice._id.toString(),
-      invoiceNumber: invoice.invoiceNumber,
-      totalAmount: invoice.totalAmount,
-      dueDate: invoice.dueDate,
-    }
-
     const blockchainRecord = await verificationService.anchorEntity({
       companyId: req.user.companyId,
       entityType: 'invoice',
       entity: invoice,
-      payload: document,
       requestedBy: req.user._id,
       actorAddress: req.user.linkedWalletAddress || null,
     })
@@ -83,18 +75,19 @@ export const invoicesController = {
     const invoices = await Invoice.find(companyFilter(req.user)).populate('customer order store createdBy').sort({ createdAt: -1 })
     const data = await Promise.all(
       invoices.map(async (invoice) => {
-        try {
-          const verification = await verificationService.verifyEntity({
-            companyId: req.user.companyId,
-            entityType: 'invoice',
-            entity: invoice,
-          })
-          return {
-            ...invoice.toObject(),
-            verificationStatus: verification?.status || invoice.verificationStatus,
-          }
-        } catch {
-          return invoice.toObject()
+        const verification = await verificationService.verifyEntity({
+          companyId: req.user.companyId,
+          entityType: 'invoice',
+          entity: invoice,
+          verifiedBy: null,
+          logEvent: false,
+        })
+        return {
+          ...invoice.toObject(),
+          verificationStatus: verification?.verificationStatus || invoice.verificationStatus,
+          tamperSource: verification?.tamperSource || null,
+          mismatchReasons: verification?.mismatchReasons || [],
+          fieldDiffs: verification?.fieldDiffs || [],
         }
       }),
     )
@@ -124,7 +117,15 @@ export const invoicesController = {
     invoice.amountPaid += amount
     invoice.balanceDue = Math.max(0, invoice.totalAmount - invoice.amountPaid)
     invoice.status = invoice.balanceDue === 0 ? 'paid' : 'issued'
+    if (invoice.balanceDue === 0) {
+      invoice.paymentDate = new Date()
+    }
     await invoice.save()
+
+    await verificationService.advanceIntegrityChain({
+      entityType: 'invoice',
+      entity: invoice,
+    })
 
     const payment = await Payment.create({
       companyId: req.user.companyId,
@@ -148,7 +149,9 @@ export const invoicesController = {
     })
 
     logger.info('finance.payment_recorded', { invoiceId: invoice._id.toString(), paymentId: payment._id.toString(), amount })
-    res.json({ success: true, data: { invoice, payment } })
+
+    const refreshed = await Invoice.findOne({ _id: invoice._id, companyId: req.user.companyId }).populate('customer order store createdBy')
+    res.json({ success: true, data: { invoice: refreshed, payment } })
   }),
   verify: asyncHandler(async (req, res) => {
     const invoice = await Invoice.findOne({ _id: req.params.id, companyId: req.user.companyId })
@@ -163,9 +166,11 @@ export const invoicesController = {
       companyId: req.user.companyId,
       entityType: 'invoice',
       entity: invoice,
+      verifiedBy: req.user._id,
+      logEvent: true,
     })
-    const chainVerification = integrity.currentHash && blockchainRecord
-      ? await blockchainService.verifyRecord('invoice', invoice._id.toString(), integrity.currentHash)
+    const chainVerification = integrity.recomputedHash && blockchainRecord
+      ? await blockchainService.verifyRecord('invoice', invoice._id.toString(), integrity.recomputedHash)
       : { verified: false, configured: Boolean(blockchainRecord) }
 
     res.json({
@@ -174,9 +179,14 @@ export const invoicesController = {
         invoiceId: invoice._id,
         invoiceNumber: invoice.invoiceNumber,
         hash: invoice.hash || null,
-        currentHash: integrity.currentHash || null,
+        storedHash: integrity.storedHash || null,
+        currentHash: integrity.recomputedHash || null,
+        originalHash: integrity.originalHash || null,
         documentCid: invoice.documentCid || null,
-        verificationStatus: integrity.status || (chainVerification.verified ? 'verified' : 'not_verified'),
+        verificationStatus: integrity.verificationStatus || (chainVerification.verified ? 'verified' : 'not_verified'),
+        tamperSource: integrity.tamperSource || null,
+        mismatchReasons: integrity.mismatchReasons || [],
+        fieldDiffs: integrity.fieldDiffs || [],
         blockchainRecord,
         blockchainVerified: chainVerification.verified,
       },

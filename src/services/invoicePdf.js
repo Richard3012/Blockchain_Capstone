@@ -1,13 +1,13 @@
 import jsPDF from 'jspdf'
 
 /**
- * Generate and download a professional PDF for an invoice object.
- * Works with the invoice shape from the Invoices page store.
+ * Generate and download a print-ready PDF invoice (GST-aware, itemized).
+ * Accepts the invoice shape from the Invoices store or a populated API row.
  */
 export function generateInvoicePDF(invoice) {
   const pdf = new jsPDF('p', 'mm', 'a4')
   const W = 210
-  const margin = 18
+  const margin = 16
   const contentW = W - margin * 2
   let y = margin
 
@@ -15,155 +15,210 @@ export function generateInvoicePDF(invoice) {
     new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(v || 0)
   const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 
-  // ── Header band ──
-  pdf.setFillColor(37, 99, 235) // blue-600
-  pdf.rect(0, 0, W, 38, 'F')
+  const companyName = 'BlockERP Retail Pvt. Ltd.'
+  const companyGstin = '29AABCU9603R1ZX'
+  const companyAddr = 'Tower A, Manyata Tech Park, Bengaluru 560045'
+  const companyEmail = 'accounts@blockerp.local'
+  const logoNote = invoice.vendorName || 'BlockERP'
+
+  // ── Header ──
+  pdf.setFillColor(15, 23, 42)
+  pdf.roundedRect(0, 0, W, 46, 0, 0, 'F')
+  pdf.setDrawColor(59, 130, 246)
+  pdf.setLineWidth(0.8)
+  pdf.line(0, 46, W, 46)
+
+  pdf.setFillColor(255, 255, 255)
+  pdf.roundedRect(margin, 8, 28, 28, 2, 2, 'F')
+  pdf.setTextColor(37, 99, 235)
+  pdf.setFontSize(10)
+  pdf.setFont('helvetica', 'bold')
+  pdf.text('LOGO', margin + 6, 24)
 
   pdf.setTextColor(255, 255, 255)
-  pdf.setFontSize(22)
+  pdf.setFontSize(20)
   pdf.setFont('helvetica', 'bold')
-  pdf.text('INVOICE', margin, 18)
-
-  pdf.setFontSize(10)
+  pdf.text('TAX INVOICE', margin + 36, 22)
+  pdf.setFontSize(9)
   pdf.setFont('helvetica', 'normal')
-  pdf.text(`# ${invoice.id || '—'}`, margin, 28)
-
-  pdf.setFontSize(10)
-  pdf.text('BlockERP', W - margin, 14, { align: 'right' })
-  pdf.setFontSize(8)
-  pdf.text('Blockchain-Powered Enterprise Resource Planning', W - margin, 21, { align: 'right' })
-  pdf.text('www.blockerp.io', W - margin, 28, { align: 'right' })
-
-  y = 48
-
-  // ── Invoice metadata ──
-  pdf.setTextColor(100, 100, 100)
-  pdf.setFontSize(8)
-  pdf.setFont('helvetica', 'bold')
-  pdf.text('BILL TO', margin, y)
-  pdf.text('DETAILS', W / 2 + 10, y)
-
-  y += 6
-  pdf.setFont('helvetica', 'normal')
-  pdf.setTextColor(30, 30, 30)
-  pdf.setFontSize(11)
-  pdf.text(invoice.customer || '—', margin, y)
+  pdf.text(`${companyName} · ${logoNote}`, margin + 36, 30)
+  pdf.text(`GSTIN ${companyGstin}`, margin + 36, 36)
 
   pdf.setFontSize(9)
-  const details = [
-    ['Invoice #', invoice.id || '—'],
-    ['Order', invoice.order || '—'],
-    ['Store', invoice.store || '—'],
-    ['Issue Date', fmtDate(invoice.issueDate)],
-    ['Due Date', fmtDate(invoice.dueDate)],
-    ['Status', String(invoice.status || '').toUpperCase()],
+  pdf.text(`Invoice # ${invoice.id || '—'}`, W - margin, 18, { align: 'right' })
+  pdf.text(`Issue: ${fmtDate(invoice.issueDate)}`, W - margin, 24, { align: 'right' })
+  pdf.text(`Due: ${fmtDate(invoice.dueDate)}`, W - margin, 30, { align: 'right' })
+  pdf.setFont('helvetica', 'bold')
+  pdf.text(`Status: ${String(invoice.status || '—').toUpperCase()}`, W - margin, 38, { align: 'right' })
+
+  y = 54
+
+  // ── Parties ──
+  pdf.setTextColor(71, 85, 105)
+  pdf.setFontSize(8)
+  pdf.setFont('helvetica', 'bold')
+  pdf.text('FROM (VENDOR)', margin, y)
+  pdf.text('BILL TO (CLIENT)', margin + contentW / 2, y)
+  y += 5
+  pdf.setFont('helvetica', 'normal')
+  pdf.setTextColor(15, 23, 42)
+  pdf.setFontSize(10)
+  const leftCol = [
+    companyName,
+    companyAddr,
+    `GSTIN: ${companyGstin}`,
+    `Email: ${companyEmail}`,
   ]
+  const rightCol = [
+    invoice.customer || '—',
+    invoice.store ? `Store: ${invoice.store}` : '',
+    invoice.order ? `Ref. order: ${invoice.order}` : '',
+    invoice.gstin ? `GSTIN: ${invoice.gstin}` : '',
+  ].filter(Boolean)
 
-  let dy = y - 4
-  details.forEach(([label, value]) => {
-    pdf.setFont('helvetica', 'normal')
-    pdf.setTextColor(100, 100, 100)
-    pdf.text(label, W / 2 + 10, dy)
-    pdf.setTextColor(30, 30, 30)
-    pdf.setFont('helvetica', 'bold')
-    pdf.text(value, W / 2 + 50, dy)
-    dy += 6
+  let yL = y
+  let yR = y
+  pdf.setFont('helvetica', 'bold')
+  leftCol.forEach((line, i) => {
+    pdf.setFont(i === 0 ? 'helvetica' : 'helvetica', i === 0 ? 'bold' : 'normal')
+    pdf.text(line, margin, yL)
+    yL += 5
   })
+  pdf.setFont('helvetica', 'bold')
+  rightCol.forEach((line, i) => {
+    pdf.setFont(i === 0 ? 'helvetica' : 'helvetica', i === 0 ? 'bold' : 'normal')
+    pdf.text(line, margin + contentW / 2, yR)
+    yR += 5
+  })
+  y = Math.max(yL, yR) + 6
 
-  y = Math.max(y + 8, dy + 4)
-
-  // ── Divider ──
-  pdf.setDrawColor(220, 220, 220)
+  pdf.setDrawColor(226, 232, 240)
   pdf.line(margin, y, W - margin, y)
   y += 8
 
-  // ── Line items table (if available) ──
-  const items = invoice.lineItems || invoice.items || []
+  // ── Line items ──
+  const items = invoice.lineItems?.length
+    ? invoice.lineItems
+    : (invoice.items || invoice.metadata?.lineItems || [])
+
   if (items.length > 0) {
-    // Table header
-    pdf.setFillColor(245, 247, 250)
-    pdf.rect(margin, y - 4, contentW, 8, 'F')
+    pdf.setFillColor(241, 245, 249)
+    pdf.rect(margin, y - 4, contentW, 9, 'F')
     pdf.setFontSize(8)
     pdf.setFont('helvetica', 'bold')
-    pdf.setTextColor(80, 80, 80)
-    pdf.text('#', margin + 2, y)
-    pdf.text('Item', margin + 10, y)
-    pdf.text('Qty', margin + contentW - 60, y, { align: 'right' })
-    pdf.text('Rate', margin + contentW - 30, y, { align: 'right' })
-    pdf.text('Amount', margin + contentW, y, { align: 'right' })
+    pdf.setTextColor(71, 85, 105)
+    pdf.text('#', margin + 1, y)
+    pdf.text('Description', margin + 10, y)
+    pdf.text('Qty', margin + contentW - 54, y, { align: 'right' })
+    pdf.text('Rate', margin + contentW - 34, y, { align: 'right' })
+    pdf.text('Amount', margin + contentW - 1, y, { align: 'right' })
     y += 7
 
     pdf.setFont('helvetica', 'normal')
-    pdf.setTextColor(30, 30, 30)
+    pdf.setTextColor(15, 23, 42)
     pdf.setFontSize(9)
     items.forEach((item, i) => {
-      const name = item.productName || item.name || item.description || `Item ${i + 1}`
+      const name = item.productName || item.name || item.description || `Line ${i + 1}`
       const qty = item.quantity || item.qty || 1
       const rate = item.unitPrice || item.price || item.rate || 0
-      const amount = qty * rate
+      const amount = item.amount != null ? item.amount : qty * rate
 
-      if (y > 260) { pdf.addPage(); y = margin }
+      if (y > 258) {
+        pdf.addPage()
+        y = margin
+      }
 
-      pdf.text(String(i + 1), margin + 2, y)
-      pdf.text(name.substring(0, 40), margin + 10, y)
-      pdf.text(String(qty), margin + contentW - 60, y, { align: 'right' })
-      pdf.text(fmt(rate), margin + contentW - 30, y, { align: 'right' })
-      pdf.text(fmt(amount), margin + contentW, y, { align: 'right' })
-      y += 6
+      pdf.text(String(i + 1), margin + 1, y)
+      const wrapped = pdf.splitTextToSize(String(name), contentW - 70)
+      pdf.text(wrapped, margin + 10, y)
+      pdf.text(String(qty), margin + contentW - 54, y, { align: 'right' })
+      pdf.text(fmt(rate), margin + contentW - 34, y, { align: 'right' })
+      pdf.text(fmt(amount), margin + contentW - 1, y, { align: 'right' })
+      y += Math.max(6, wrapped.length * 4.2)
     })
-
     y += 4
-    pdf.setDrawColor(220, 220, 220)
+    pdf.setDrawColor(226, 232, 240)
     pdf.line(margin, y, W - margin, y)
-    y += 6
+    y += 8
   }
 
-  // ── Totals ──
-  const totalX = W - margin
+  // ── GST & totals ──
+  const subtotal = invoice.subtotal != null ? invoice.subtotal : (invoice.amount != null && invoice.taxAmount != null ? invoice.amount - invoice.taxAmount : null)
+  const tax = invoice.taxAmount ?? 0
+  const cgst = tax > 0 ? tax / 2 : 0
+  const sgst = tax > 0 ? tax / 2 : 0
+  const total = invoice.amount ?? invoice.totalAmount ?? 0
+
+  const colRight = W - margin
   pdf.setFontSize(10)
+  pdf.setTextColor(71, 85, 105)
   pdf.setFont('helvetica', 'normal')
-  pdf.setTextColor(80, 80, 80)
 
-  if (invoice.subtotal != null) {
-    pdf.text('Subtotal:', totalX - 50, y)
-    pdf.text(fmt(invoice.subtotal), totalX, y, { align: 'right' })
+  if (subtotal != null) {
+    pdf.text('Taxable value (excl. GST):', colRight - 62, y)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setTextColor(15, 23, 42)
+    pdf.text(fmt(subtotal), colRight, y, { align: 'right' })
     y += 6
-  }
-  if (invoice.taxAmount != null) {
-    pdf.text('Tax:', totalX - 50, y)
-    pdf.text(fmt(invoice.taxAmount), totalX, y, { align: 'right' })
-    y += 6
+    pdf.setFont('helvetica', 'normal')
+    pdf.setTextColor(71, 85, 105)
   }
 
+  pdf.text('CGST (50% of GST):', colRight - 62, y)
   pdf.setFont('helvetica', 'bold')
-  pdf.setTextColor(30, 30, 30)
+  pdf.setTextColor(15, 23, 42)
+  pdf.text(fmt(cgst), colRight, y, { align: 'right' })
+  y += 6
+  pdf.setFont('helvetica', 'normal')
+  pdf.setTextColor(71, 85, 105)
+  pdf.text('SGST / UTGST (50% of GST):', colRight - 62, y)
+  pdf.setFont('helvetica', 'bold')
+  pdf.setTextColor(15, 23, 42)
+  pdf.text(fmt(sgst), colRight, y, { align: 'right' })
+  y += 6
+
+  pdf.setDrawColor(226, 232, 240)
+  pdf.line(colRight - 70, y, colRight, y)
+  y += 5
   pdf.setFontSize(12)
-  pdf.text('Total:', totalX - 50, y)
-  pdf.text(fmt(invoice.amount), totalX, y, { align: 'right' })
+  pdf.setTextColor(15, 23, 42)
+  pdf.setFont('helvetica', 'bold')
+  pdf.text('Invoice total:', colRight - 62, y)
+  pdf.text(fmt(total), colRight, y, { align: 'right' })
+  y += 8
+
+  pdf.setFontSize(9)
+  pdf.setFont('helvetica', 'normal')
+  pdf.setTextColor(71, 85, 105)
+  pdf.text(`Amount paid: ${fmt(invoice.amountPaid || 0)}`, margin, y)
+  pdf.text(`Balance due: ${fmt(invoice.balanceDue != null ? invoice.balanceDue : total - (invoice.amountPaid || 0))}`, margin + 70, y)
+  y += 6
+  pdf.text(`Payment status: ${String(invoice.status || '').toUpperCase()}`, margin, y)
+  if (invoice.paymentDate) {
+    pdf.text(`Payment date: ${fmtDate(invoice.paymentDate)}`, margin + 70, y)
+  }
   y += 10
 
-  // ── Blockchain hash ──
   if (invoice.blockchainHash) {
-    pdf.setDrawColor(220, 220, 220)
+    pdf.setDrawColor(226, 232, 240)
     pdf.line(margin, y, W - margin, y)
     y += 6
     pdf.setFontSize(8)
     pdf.setFont('helvetica', 'bold')
     pdf.setTextColor(100, 100, 100)
-    pdf.text('BLOCKCHAIN VERIFICATION', margin, y)
-    y += 5
+    pdf.text('INTEGRITY ANCHOR (SHA-256 CHAIN)', margin, y)
+    y += 4
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(7)
     pdf.setTextColor(22, 163, 74)
-    pdf.text(invoice.blockchainHash, margin, y)
-    y += 8
+    pdf.text(String(invoice.blockchainHash), margin, y, { maxWidth: contentW })
+    y += 10
   }
 
-  // ── Footer ──
   pdf.setFontSize(7)
-  pdf.setTextColor(160, 160, 160)
-  pdf.text('Generated by BlockERP — Blockchain-anchored ERP System', W / 2, 285, { align: 'center' })
-  pdf.text(`Printed on ${new Date().toLocaleString('en-IN')}`, W / 2, 289, { align: 'center' })
+  pdf.setTextColor(148, 163, 184)
+  pdf.text('This document was generated by BlockERP for operational use. Retain for GST and audit purposes.', W / 2, 287, { align: 'center' })
+  pdf.text(`Printed ${new Date().toLocaleString('en-IN')}`, W / 2, 292, { align: 'center' })
 
   pdf.save(`${invoice.id || 'Invoice'}.pdf`)
 }

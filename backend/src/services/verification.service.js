@@ -1,7 +1,11 @@
 import { BlockchainRecord } from '../models/blockchain-record.model.js'
+import { AuditLog } from '../models/audit-log.model.js'
+import { auditService } from './audit.service.js'
 import { blockchainService } from './blockchain.service.js'
 import { ipfsService } from './ipfs.service.js'
-import { canonicalizeRecord, hashRecord } from '../utils/hash-record.js'
+import { verificationEventService } from './verification-event.service.js'
+import { canonicalizeRecord, chainIntegrityHash } from '../utils/hash-record.js'
+import { diffCanonicalObjects } from '../utils/canonical-diff.js'
 import { logger } from '../utils/logger.js'
 
 const normalizeDate = (value) => {
@@ -10,6 +14,9 @@ const normalizeDate = (value) => {
 }
 
 const normalizeItems = (items = [], mapper) => items.map(mapper)
+const EPSILON = 0.01
+
+const nearlyEqual = (a = 0, b = 0) => Math.abs((a || 0) - (b || 0)) < EPSILON
 
 const buildRecordLabel = (entityType, entity) => {
   const identifier = entity?.orderNumber
@@ -28,6 +35,58 @@ const buildRecordLabel = (entityType, entity) => {
   }
 
   return identifier ? `${labels[entityType] || 'Record'} ${identifier}` : (labels[entityType] || 'Record')
+}
+
+const evaluateBusinessInvariants = (entityType, entity) => {
+  const reasons = []
+
+  if (entityType === 'sales_order') {
+    const calculatedSubtotal = (entity.items || []).reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0)
+    const expectedTotal = calculatedSubtotal + (entity.taxAmount || 0)
+
+    if (!nearlyEqual(calculatedSubtotal, entity.subtotal || 0)) {
+      reasons.push({
+        field: 'subtotal',
+        expected: calculatedSubtotal,
+        actual: entity.subtotal || 0,
+        message: 'Subtotal does not match the sum of order items.',
+      })
+    }
+
+    if (!nearlyEqual(expectedTotal, entity.totalAmount || 0)) {
+      reasons.push({
+        field: 'totalAmount',
+        expected: expectedTotal,
+        actual: entity.totalAmount || 0,
+        message: 'Total amount does not match subtotal plus tax.',
+      })
+    }
+  }
+
+  if (entityType === 'invoice') {
+    const expectedTotal = (entity.subtotal || 0) + (entity.taxAmount || 0)
+    const expectedBalance = (entity.totalAmount || 0) - (entity.amountPaid || 0)
+
+    if (!nearlyEqual(expectedTotal, entity.totalAmount || 0)) {
+      reasons.push({
+        field: 'totalAmount',
+        expected: expectedTotal,
+        actual: entity.totalAmount || 0,
+        message: 'Invoice total does not match subtotal plus tax.',
+      })
+    }
+
+    if (!nearlyEqual(expectedBalance, entity.balanceDue || 0)) {
+      reasons.push({
+        field: 'balanceDue',
+        expected: expectedBalance,
+        actual: entity.balanceDue || 0,
+        message: 'Balance due does not match total minus paid amount.',
+      })
+    }
+  }
+
+  return reasons
 }
 
 const canonicalBuilders = {
@@ -116,6 +175,24 @@ const attachVerificationStatus = async (entity, verificationStatus, recordHash =
   await entity.save()
 }
 
+const applicationModificationActions = [
+  'sales.order_modified',
+  'sales.order_status_updated',
+  'finance.invoice_modified',
+  'procurement.purchase_order_modified',
+  'procurement.goods_receipt_modified',
+  'inventory.transaction_modified',
+]
+
+const parseSnapshot = (raw) => {
+  if (!raw || typeof raw !== 'string') return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
 export const verificationService = {
   buildCanonicalPayload(entityType, entity, payload) {
     if (payload) return payload
@@ -124,9 +201,35 @@ export const verificationService = {
     return JSON.parse(JSON.stringify(entity))
   },
 
+  /**
+   * Advance the integrity chain after a trusted in-app mutation (hash links to prior head).
+   */
+  async advanceIntegrityChain({ entityType, entity }) {
+    const canonicalPayload = this.buildCanonicalPayload(entityType, entity)
+    const previousHead = entity.hash || ''
+    const newHash = chainIntegrityHash(canonicalPayload, previousHead)
+
+    entity.integrityPreviousHash = previousHead
+    entity.hash = newHash
+    entity.integritySnapshot = canonicalizeRecord(canonicalPayload)
+    if ('verificationStatus' in entity) {
+      entity.verificationStatus = 'verified'
+    }
+    await entity.save()
+
+    logger.info('verification.chain_advanced', {
+      entityType,
+      entityId: entity._id.toString(),
+      hash: newHash,
+    })
+
+    return newHash
+  },
+
   async anchorEntity({ companyId, entityType, entity, payload, requestedBy, actorAddress }) {
     const canonicalPayload = this.buildCanonicalPayload(entityType, entity, payload)
-    const recordHash = hashRecord(canonicalPayload)
+    const previousLink = entity.integrityPreviousHash ?? ''
+    const recordHash = chainIntegrityHash(canonicalPayload, previousLink)
 
     logger.info('verification.record_created', {
       entityType,
@@ -136,6 +239,10 @@ export const verificationService = {
     })
 
     const upload = await ipfsService.uploadJson(`${entityType}-${entity._id.toString()}`, canonicalPayload)
+
+    entity.integrityPreviousHash = previousLink
+    entity.integrityOriginalHash = entity.integrityOriginalHash || recordHash
+    entity.integritySnapshot = canonicalizeRecord(canonicalPayload)
     await attachVerificationStatus(entity, 'pending', recordHash, upload.cid || '')
 
     const blockchainRecord = await blockchainService.anchorRecord({
@@ -161,37 +268,125 @@ export const verificationService = {
     return blockchainRecord
   },
 
-  async verifyEntity({ companyId, entityType, entity }) {
+  async verifyEntity({
+    companyId,
+    entityType,
+    entity,
+    verifiedBy = null,
+    logEvent = false,
+  }) {
     const canonicalPayload = this.buildCanonicalPayload(entityType, entity)
-    const currentHash = hashRecord(canonicalPayload)
+    const previousLink = entity.integrityPreviousHash ?? ''
+    const recomputedHash = chainIntegrityHash(canonicalPayload, previousLink)
+
     const blockchainRecord = await BlockchainRecord.findOne({
       companyId,
       entityType,
       entityId: entity._id.toString(),
     }).sort({ createdAt: -1 })
 
-    const expectedHash = blockchainRecord?.recordHash || entity.hash || null
-    const verified = Boolean(expectedHash && expectedHash === currentHash)
-    const verificationStatus = !expectedHash ? 'not_requested' : verified ? 'verified' : 'failed'
+    const storedHash = entity.hash || blockchainRecord?.recordHash || null
+    const mismatchReasons = evaluateBusinessInvariants(entityType, entity)
+    const hashMatches = Boolean(storedHash && recomputedHash === storedHash)
+    const verified = mismatchReasons.length === 0 && hashMatches
 
-    await attachVerificationStatus(entity, verificationStatus)
+    let verificationStatus = 'not_requested'
+    if (!storedHash) {
+      verificationStatus = 'not_requested'
+    } else if (mismatchReasons.length > 0 || !hashMatches) {
+      verificationStatus = 'failed'
+    } else {
+      verificationStatus = 'verified'
+    }
+
+    let tamperSource = null
+    let lastTrackedChange = null
+    let fieldDiffs = []
+
+    const snapshot = parseSnapshot(entity.integritySnapshot)
+    if (snapshot && (verificationStatus === 'failed')) {
+      fieldDiffs = diffCanonicalObjects(snapshot, canonicalPayload).map((row) => ({
+        field: row.field,
+        before: row.before,
+        after: row.after,
+      }))
+    }
 
     if (verified) {
       logger.info('verification.pass', {
         entityType,
         entityId: entity._id.toString(),
-        hash: currentHash,
+        hash: recomputedHash,
       })
-    } else if (expectedHash) {
+    } else if (storedHash || mismatchReasons.length > 0) {
+      lastTrackedChange = await AuditLog.findOne({
+        companyId,
+        entityType,
+        entityId: entity._id.toString(),
+        action: { $in: applicationModificationActions },
+      }).populate('actor').sort({ createdAt: -1 })
+
+      tamperSource = lastTrackedChange ? 'application_user' : 'external_or_untracked'
+
+      if (tamperSource === 'external_or_untracked') {
+        const existingExternalAlert = await AuditLog.findOne({
+          companyId,
+          entityType,
+          entityId: entity._id.toString(),
+          action: 'security.external_modification_detected',
+          'metadata.recomputedHash': recomputedHash,
+        })
+
+        if (!existingExternalAlert) {
+          await auditService.record({
+            companyId,
+            action: 'security.external_modification_detected',
+            entityType,
+            entityId: entity._id,
+            summary: `${buildRecordLabel(entityType, entity)} integrity mismatch — possible direct database change`,
+            actor: verifiedBy || null,
+            metadata: {
+              source: 'external_or_untracked',
+              expectedHash: storedHash,
+              recomputedHash,
+              createdBy: entity.createdBy?._id?.toString?.() || entity.createdBy?.toString?.() || null,
+            },
+          })
+        }
+      }
+
       logger.warn('verification.tampering_detected', {
         security: true,
         detectedAt: new Date().toISOString(),
         entityType,
         entityId: entity._id.toString(),
-        expectedHash,
-        currentHash,
+        recordLabel: buildRecordLabel(entityType, entity),
+        storedHash,
+        recomputedHash,
+        mismatchReasons,
+        tamperSource,
         createdBy: entity.createdBy?._id?.toString?.() || entity.createdBy?.toString?.() || null,
         orderNumber: entity.orderNumber || entity.invoiceNumber || entity.receiptNumber || null,
+      })
+    }
+
+    if (logEvent) {
+      await verificationEventService.append({
+        companyId,
+        entityType,
+        entityId: entity._id.toString(),
+        recordLabel: buildRecordLabel(entityType, entity),
+        status: verificationStatus === 'failed' ? 'tampered' : verificationStatus === 'verified' ? 'verified' : verificationStatus === 'pending' ? 'pending' : 'not_requested',
+        storedHash: storedHash || '',
+        recomputedHash,
+        message: verificationStatus === 'failed'
+          ? (tamperSource === 'external_or_untracked'
+            ? 'Recomputed hash does not match stored chain head — modified via external source or untracked path.'
+            : 'Recomputed hash does not match stored chain head, or business invariants failed.')
+          : 'Integrity chain verified against stored head.',
+        fieldDiffs,
+        tamperSource: verificationStatus === 'failed' ? tamperSource : undefined,
+        triggeredBy: verifiedBy || null,
       })
     }
 
@@ -200,9 +395,27 @@ export const verificationService = {
       entityId: entity._id.toString(),
       recordLabel: buildRecordLabel(entityType, entity),
       verificationStatus,
-      expectedHash,
-      currentHash,
+      expectedHash: storedHash,
+      currentHash: recomputedHash,
+      storedHash,
+      recomputedHash,
+      originalHash: entity.integrityOriginalHash || null,
+      previousHash: previousLink,
       blockchainRecord,
+      mismatchReasons,
+      tamperSource,
+      fieldDiffs,
+      lastTrackedChange: lastTrackedChange ? {
+        action: lastTrackedChange.action,
+        createdAt: lastTrackedChange.createdAt,
+        summary: lastTrackedChange.summary,
+        actor: lastTrackedChange.actor ? {
+          _id: lastTrackedChange.actor._id,
+          name: lastTrackedChange.actor.name,
+          email: lastTrackedChange.actor.email,
+          role: lastTrackedChange.actor.role,
+        } : null,
+      } : null,
       verified,
     }
   },

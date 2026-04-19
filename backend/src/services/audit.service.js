@@ -14,7 +14,7 @@ export const auditService = {
       summary,
       metadata,
       hash,
-      actor,
+      actor: actor ?? null,
     })
 
     logger.info('audit.recorded', { action, entityType, entityId: entityId.toString(), auditLogId: auditLog._id.toString() })

@@ -61,12 +61,22 @@ export default function Invoices() {
       customer: invoice.customer?.name || invoice.vendorName || '-',
       store: invoice.store?.name || '-',
       amount: invoice.totalAmount || 0,
+      subtotal: invoice.subtotal,
+      taxAmount: invoice.taxAmount,
+      balanceDue: invoice.balanceDue,
+      amountPaid: invoice.amountPaid,
       status: String(invoice.status || 'draft').toLowerCase(),
       issueDate: invoice.issueDate || invoice.createdAt,
       date: invoice.issueDate || invoice.createdAt,
       dueDate: invoice.dueDate,
+      paymentDate: invoice.paymentDate,
+      lineItems: invoice.lineItems?.length ? invoice.lineItems : (invoice.metadata?.lineItems || []),
+      vendorName: invoice.vendorName,
+      gstin: invoice.gstin,
       blockchainHash: invoice.hash || '',
       verificationStatus: invoice.verificationStatus || 'not_requested',
+      mismatchReasons: invoice.mismatchReasons || [],
+      fieldDiffs: invoice.fieldDiffs || [],
     })))
   }
 
@@ -239,6 +249,7 @@ export default function Invoices() {
               <Detail label="Amount" value={formatCurrency(selectedInvoice.amount)} />
               <Detail label="Issue Date" value={formatDate(selectedInvoice.issueDate)} />
               <Detail label="Due Date" value={formatDate(selectedInvoice.dueDate)} />
+              <Detail label="Payment Date" value={formatDate(selectedInvoice.paymentDate)} />
             </div>
             <div className="flex gap-2">
               <Badge>{labelizeStatus(selectedInvoice.status)}</Badge>

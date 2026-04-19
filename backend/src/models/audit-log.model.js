@@ -12,7 +12,7 @@ const auditLogSchema = new mongoose.Schema(
     summary: { type: String, required: true, trim: true },
     metadata: { type: Object, default: {} },
     hash: { type: String, trim: true },
-    actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     syncStatus: { type: String, enum: ['synced', 'pending_sync'], default: 'synced' },
   },
   baseSchemaOptions,
