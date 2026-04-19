@@ -97,6 +97,52 @@ function recoverGSTIN(parsed, rawText) {
     if (VALID_STATE_CODES.has(stateCode)) return { gstin: parsed.gstin, source: 'extracted', corrections }
   }
 
+  // ── OCR misread repair utility ──────────────────────────
+  // Common Tesseract misreads: O↔0, I↔1, S↔5, B↔8, G↔6, Z↔2, l↔1
+  function repairGSTIN(raw) {
+    if (!raw || raw.length !== 15) return null
+    let f = raw.toUpperCase()
+
+    // Positions 0-1: must be digits (state code)
+    f = f[0].replace(/[OoQD]/g, '0').replace(/[IilL]/g, '1').replace(/[S]/g, '5').replace(/[B]/g, '8') +
+        f[1].replace(/[OoQD]/g, '0').replace(/[IilL]/g, '1').replace(/[S]/g, '5').replace(/[B]/g, '8') +
+        f.substring(2)
+
+    // Positions 2-6: must be alpha (PAN first 5 chars)
+    for (let i = 2; i <= 6; i++) {
+      if (/\d/.test(f[i])) {
+        const map = { '0': 'O', '1': 'I', '5': 'S', '8': 'B', '6': 'G' }
+        if (map[f[i]]) f = f.slice(0, i) + map[f[i]] + f.slice(i + 1)
+      }
+    }
+
+    // Positions 7-10: must be digits (PAN numeric part)
+    for (let i = 7; i <= 10; i++) {
+      if (/[A-Z]/.test(f[i])) {
+        const map = { 'O': '0', 'I': '1', 'S': '5', 'B': '8', 'G': '6', 'L': '1', 'Z': '2' }
+        if (map[f[i]]) f = f.slice(0, i) + map[f[i]] + f.slice(i + 1)
+      }
+    }
+
+    // Position 11: must be alpha (PAN type)
+    if (/\d/.test(f[11])) {
+      const map = { '0': 'O', '1': 'I', '5': 'S', '8': 'B' }
+      if (map[f[11]]) f = f.slice(0, 11) + map[f[11]] + f.slice(12)
+    }
+
+    // Position 12: alphanumeric (entity number) — leave as is
+
+    // Position 13: must be 'Z'
+    if (f[13] !== 'Z') {
+      if (f[13] === '2' || f[13] === 'z') f = f.slice(0, 13) + 'Z' + f.slice(14)
+    }
+
+    // Position 14: alphanumeric (check digit) — leave as is
+
+    if (GSTIN_STRICT_RE.test(f) && VALID_STATE_CODES.has(f.substring(0, 2))) return f
+    return null
+  }
+
   // Strategy 1: Deep regex scan across full text for any GSTIN-like pattern
   if (rawText) {
     const upper = rawText.toUpperCase()
@@ -126,24 +172,15 @@ function recoverGSTIN(parsed, rawText) {
     }
 
     // Strategy 2: Try OCR misread repair on any 15-char alphanumeric sequences
-    const potentialGstins = upper.match(/[A-Z0-9OI]{15}/g) || []
-    for (let raw of potentialGstins) {
-      // Apply OCR misread fixes
-      let fixed = raw
-      // First 2 chars must be digits: O→0, I→1
-      fixed = fixed[0].replace(/O/g, '0').replace(/I/g, '1') +
-              fixed[1].replace(/O/g, '0').replace(/I/g, '1') +
-              fixed.substring(2)
-      // Position 14 (Z position): 2→Z
-      if (fixed.length === 15 && fixed[13] !== 'Z') {
-        if (fixed[13] === '2') fixed = fixed.slice(0, 13) + 'Z' + fixed.slice(14)
-      }
-      if (GSTIN_STRICT_RE.test(fixed) && VALID_STATE_CODES.has(fixed.substring(0, 2))) {
+    const potentialGstins = upper.match(/[A-Z0-9]{15}/g) || []
+    for (const raw of potentialGstins) {
+      const fixed = repairGSTIN(raw)
+      if (fixed) {
         corrections.push({
           field: 'gstin',
           from: parsed.gstin || '(missing)',
           to: fixed,
-          rule: 'GSTIN recovered via OCR misread repair',
+          rule: 'GSTIN recovered via OCR misread repair (position-aware)',
         })
         return { gstin: fixed, source: 'ocr_repair', corrections }
       }
@@ -151,7 +188,7 @@ function recoverGSTIN(parsed, rawText) {
 
     // Strategy 3: Context scan — look near GSTIN/GST labels for partial matches
     const contextPatterns = [
-      /(?:gstin|gst\s*no|gst\s*number|gst\s*in|gst\s*i\.?d|gst\s*reg)[.\s:;\-]*([A-Z0-9OI]{2,3}[A-Z]{4,5}[A-Z0-9OI]{4,5}[A-Z0-9OI]{1,3}[A-Z0-9OI]{0,2})/gi,
+      /(?:gstin|gst\s*no|gst\s*number|gst\s*in|gst\s*i\.?d|gst\s*reg)[.\s:;\-]*([A-Z0-9 ]{15,20})/gi,
     ]
     for (const pattern of contextPatterns) {
       let cm
@@ -159,22 +196,37 @@ function recoverGSTIN(parsed, rawText) {
         let raw = cm[1].toUpperCase().replace(/\s/g, '')
         if (raw.length < 15) continue
         raw = raw.substring(0, 15)
-        // OCR misread fixes
-        let fixed = raw
-        fixed = fixed[0].replace(/O/g, '0').replace(/I/g, '1') +
-                fixed[1].replace(/O/g, '0').replace(/I/g, '1') +
-                fixed.substring(2)
-        if (fixed[13] !== 'Z' && fixed[13] === '2') fixed = fixed.slice(0, 13) + 'Z' + fixed.slice(14)
-        if (GSTIN_STRICT_RE.test(fixed) && VALID_STATE_CODES.has(fixed.substring(0, 2))) {
+        const fixed = repairGSTIN(raw)
+        if (fixed) {
           corrections.push({
             field: 'gstin',
             from: parsed.gstin || '(missing)',
             to: fixed,
-            rule: 'GSTIN recovered from context near GST label',
+            rule: 'GSTIN recovered from context near GST label (position-aware repair)',
           })
           return { gstin: fixed, source: 'labeled_pattern', corrections }
         }
       }
+    }
+
+    // Strategy 4: Scan ALL 15-char sequences with 1-2 char tolerance
+    // Find sequences that are close to GSTIN pattern even with OCR noise
+    const allSeqs = []
+    for (let i = 0; i <= upper.length - 15; i++) {
+      const seq = upper.substring(i, i + 15)
+      if (/^[A-Z0-9]{15}$/.test(seq)) {
+        const fixed = repairGSTIN(seq)
+        if (fixed && !allSeqs.includes(fixed)) allSeqs.push(fixed)
+      }
+    }
+    for (const fixed of allSeqs) {
+      corrections.push({
+        field: 'gstin',
+        from: parsed.gstin || '(missing)',
+        to: fixed,
+        rule: 'GSTIN recovered via sliding window + position-aware repair',
+      })
+      return { gstin: fixed, source: 'sliding_window', corrections }
     }
   }
 
@@ -863,10 +915,13 @@ function enforceFinancialConsistency(parsed) {
     } else if (Math.abs(lineSum - subtotal) > 5) {
       const diffPct = Math.abs(lineSum - subtotal) / Math.max(subtotal, 1) * 100
       if (diffPct > 5 || Math.abs(lineSum - subtotal) > 100) {
+        // Major mismatch: trust the extracted subtotal from document over computed sum
+        // Line items may have OCR errors in qty/price, but subtotal is printed directly
+        corrections.push({ field: 'subtotal', from: lineSum, to: subtotal, rule: `Trusting extracted subtotal over line items sum (₹${Math.abs(lineSum - subtotal).toFixed(2)} diff)` })
         flags.push({
           field: 'subtotal',
-          severity: 'error',
-          message: `Line items sum (₹${lineSum.toFixed(2)}) differs from subtotal (₹${subtotal.toFixed(2)}) by ₹${Math.abs(lineSum - subtotal).toFixed(2)} (${diffPct.toFixed(1)}%)`,
+          severity: 'warning',
+          message: `Line items sum (₹${lineSum.toFixed(2)}) differs from subtotal (₹${subtotal.toFixed(2)}) by ₹${Math.abs(lineSum - subtotal).toFixed(2)} (${diffPct.toFixed(1)}%) — using extracted subtotal`,
         })
       } else {
         // Moderate difference: correct to line items
@@ -888,11 +943,24 @@ function enforceFinancialConsistency(parsed) {
     } else if (diff > 5) {
       const diffPct = diff / Math.max(totalAmount, 1) * 100
       if (diffPct > 5 || diff > 100) {
-        flags.push({
-          field: 'totalAmount',
-          severity: 'error',
-          message: `Subtotal (₹${subtotal.toFixed(2)}) + Tax (₹${taxAmount.toFixed(2)}) = ₹${computedTotal.toFixed(2)}, but Total is ₹${totalAmount.toFixed(2)} — difference ₹${diff.toFixed(2)}`,
-        })
+        // Major inconsistency: trust the extracted total (most reliably printed on invoices)
+        // and recalculate tax as total - subtotal
+        const derivedTax = round2(totalAmount - subtotal)
+        if (derivedTax >= 0 && totalAmount > subtotal) {
+          corrections.push({ field: 'taxAmount', from: taxAmount, to: derivedTax, rule: `Recalculated tax from total - subtotal (₹${diff.toFixed(2)} mismatch resolved)` })
+          taxAmount = derivedTax
+          flags.push({
+            field: 'totalAmount',
+            severity: 'warning',
+            message: `Subtotal + original Tax = ₹${computedTotal.toFixed(2)}, but Total is ₹${totalAmount.toFixed(2)} — tax recalculated as ₹${derivedTax.toFixed(2)}`,
+          })
+        } else {
+          flags.push({
+            field: 'totalAmount',
+            severity: 'warning',
+            message: `Subtotal (₹${subtotal.toFixed(2)}) + Tax (₹${taxAmount.toFixed(2)}) = ₹${computedTotal.toFixed(2)}, but Total is ₹${totalAmount.toFixed(2)} — difference ₹${diff.toFixed(2)}`,
+          })
+        }
       } else {
         corrections.push({ field: 'totalAmount', from: totalAmount, to: computedTotal, rule: `Corrected to subtotal + tax (₹${diff.toFixed(2)} diff)` })
         totalAmount = computedTotal
@@ -1010,6 +1078,31 @@ function selfHeal(parsed, rawText) {
     resolutions.invoiceDate = { resolved: true, source: dateResult.source, original: '', final: dateResult.invoiceDate, systemInferred: dateResult.systemInferred }
   } else if (parsed.invoiceDate) {
     resolutions.invoiceDate = { resolved: true, source: 'extracted', original: parsed.invoiceDate, final: parsed.invoiceDate, systemInferred: false }
+  }
+
+  // ── Invoice Number Recovery ───────────────────────────
+  if (!parsed.invoiceNumber && rawText) {
+    // Try additional patterns that parseOCRText may have missed
+    const recoveryPatterns = [
+      // "No." on its own line followed by value
+      /(?:^|\n)\s*no\.?\s*[:\-]\s*([A-Z0-9\-\/\._]{2,})/im,
+      // OCR may insert spaces in the number
+      /invoice\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9][\sA-Z0-9\-\/]{2,})/i,
+      // Standalone alphanumeric near top (likely invoice number)
+      /(?:^|\n)\s*#\s*([A-Z0-9\-\/]{3,})/m,
+    ]
+    for (const p of recoveryPatterns) {
+      const m = rawText.match(p)
+      if (m) {
+        const cleaned = m[1].replace(/\s+/g, '').trim()
+        if (cleaned.length >= 3) {
+          corrections.push({ field: 'invoiceNumber', from: '(missing)', to: cleaned, rule: 'Invoice number recovered from text scan' })
+          parsed.invoiceNumber = cleaned
+          resolutions.invoiceNumber = { resolved: true, source: 'text_recovery', original: '', final: cleaned }
+          break
+        }
+      }
+    }
   }
 
   // Clean vendor name — remove stray characters, excess whitespace

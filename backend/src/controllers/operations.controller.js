@@ -84,10 +84,24 @@ const serializeDate = (value) => {
 }
 
 const nextCode = async (Model, companyId, field, prefix) => {
-  const latest = await Model.findOne({ companyId }).sort({ createdAt: -1 }).select(field)
+  // Find the highest existing numeric suffix for this companyId, regardless of
+  // insertion order. Sorting by the field itself works because the suffix is
+  // zero-padded to a fixed width (e.g. AST-0001, AST-0002, ...).
+  const latest = await Model.findOne({ companyId, [field]: { $regex: `^${prefix}\\d+$` } })
+    .sort({ [field]: -1 })
+    .select(field)
+    .lean()
   const latestValue = latest?.[field] || ''
   const match = String(latestValue).match(/(\d+)$/)
-  const next = match ? Number(match[1]) + 1 : 1
+  let next = match ? Number(match[1]) + 1 : 1
+  // Defensive: avoid collision if a concurrent insert beat us to it.
+  // Try up to 10 increments before giving up (extremely unlikely in practice).
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const candidate = `${prefix}${String(next).padStart(4, '0')}`
+    const exists = await Model.exists({ companyId, [field]: candidate })
+    if (!exists) return candidate
+    next += 1
+  }
   return `${prefix}${String(next).padStart(4, '0')}`
 }
 
@@ -368,16 +382,24 @@ export const operationsController = {
         done: z.boolean().optional(),
       })).optional(),
     }).parse(req.body)
+
+    const updates = {
+      ...payload,
+      ...(payload.start !== undefined ? { start: serializeDate(payload.start) } : {}),
+      ...(payload.end !== undefined ? { end: serializeDate(payload.end) } : {}),
+      ...(payload.milestones
+        ? { milestones: payload.milestones.map((item) => ({ ...item, due: serializeDate(item.due) })) }
+        : {}),
+    }
+
+    if (updates.milestones && updates.milestones.length > 0 && payload.progress === undefined) {
+      const done = updates.milestones.filter((m) => m.done).length
+      updates.progress = Math.round((done / updates.milestones.length) * 100)
+    }
+
     const project = await ProjectRecord.findOneAndUpdate(
       { _id: req.params.id, companyId: req.user.companyId },
-      {
-        ...payload,
-        ...(payload.start !== undefined ? { start: serializeDate(payload.start) } : {}),
-        ...(payload.end !== undefined ? { end: serializeDate(payload.end) } : {}),
-        ...(payload.milestones
-          ? { milestones: payload.milestones.map((item) => ({ ...item, due: serializeDate(item.due) })) }
-          : {}),
-      },
+      updates,
       { new: true, runValidators: true },
     )
     res.json({ success: true, data: project })

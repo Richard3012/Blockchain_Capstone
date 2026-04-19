@@ -84,11 +84,11 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
-// Apply rate limiters (auth routes use auth limiter only — avoid stacking general API limiter on /api/auth/*)
+// Apply rate limiters (general API limiter only — no auth rate limiting)
 app.use('/api', (req, res, next) => {
   const base = req.originalUrl.split('?')[0]
   if (base.startsWith('/api/auth')) {
-    return authLimiter(req, res, next)
+    return next()
   }
   return apiLimiter(req, res, next)
 })

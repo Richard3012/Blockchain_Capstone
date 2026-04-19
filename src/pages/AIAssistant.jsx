@@ -1,6 +1,33 @@
 import { useState, useRef, useEffect } from 'react'
 import Button from '../components/UI/Button'
 import { apiClient } from '../services/api/client'
+import LineChart from '../components/Charts/LineChart'
+import BarChart from '../components/Charts/BarChart'
+import DonutChart from '../components/Charts/DonutChart'
+
+/**
+ * Render an inline chart for a tool result if the payload contains a
+ * `chartType` hint. Falls back to null silently if the shape doesn't match.
+ */
+function InlineChart({ payload }) {
+  if (!payload || typeof payload !== 'object') return null
+  const { chartType, data, labels, series, title } = payload
+  if (!chartType) return null
+  try {
+    if (chartType === 'line' && Array.isArray(data)) {
+      return <div className="mt-3"><LineChart data={data} title={title} /></div>
+    }
+    if (chartType === 'bar' && Array.isArray(data)) {
+      return <div className="mt-3"><BarChart data={data} title={title} /></div>
+    }
+    if (chartType === 'donut' && Array.isArray(data)) {
+      return <div className="mt-3"><DonutChart data={data} title={title} /></div>
+    }
+  } catch {
+    return null
+  }
+  return null
+}
 
 export default function AIAssistant() {
   const [messages, setMessages] = useState([
@@ -23,6 +50,7 @@ export default function AIAssistant() {
   ])
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  const [conversationId, setConversationId] = useState(null)
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -41,7 +69,8 @@ export default function AIAssistant() {
     setIsTyping(true)
 
     try {
-      const result = await apiClient.post('/assistant/query', { query: text })
+      const result = await apiClient.post('/assistant/query', { query: text, conversationId })
+      if (result.conversationId) setConversationId(result.conversationId)
       setMessages((prev) => [
         ...prev,
         {
@@ -50,6 +79,8 @@ export default function AIAssistant() {
           content: result.text || result.response || 'No response.',
           data: result.data,
           intent: result.intent,
+          provider: result.provider,
+          toolCalls: result.toolCalls,
           timestamp: new Date(),
         },
       ])
@@ -158,10 +189,31 @@ export default function AIAssistant() {
                   }`}
                 >
                   {msg.role === 'assistant' ? (
-                    <div
-                      className="prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }}
-                    />
+                    <>
+                      {msg.toolCalls?.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-1">
+                          {msg.toolCalls.map((tc, i) => (
+                            <span
+                              key={i}
+                              className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-purple/10 text-purple border border-purple/30"
+                              title={JSON.stringify(tc.args || {})}
+                            >
+                              ⚙ {tc.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div
+                        className="prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }}
+                      />
+                      {Array.isArray(msg.data)
+                        ? msg.data.map((d, i) => <InlineChart key={i} payload={d} />)
+                        : <InlineChart payload={msg.data} />}
+                      {msg.provider && (
+                        <p className="text-[10px] text-text-muted mt-1 italic">via {msg.provider}</p>
+                      )}
+                    </>
                   ) : (
                     <p>{msg.content}</p>
                   )}

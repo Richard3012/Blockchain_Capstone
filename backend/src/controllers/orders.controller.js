@@ -12,6 +12,7 @@ import { auditService } from '../services/audit.service.js'
 import { verificationService } from '../services/verification.service.js'
 import { companyFilter } from '../utils/scope.js'
 import { logger } from '../utils/logger.js'
+import { broadcastFromReq } from '../utils/realtime.js'
 
 const orderSchema = z.object({
   customer: z.string(),
@@ -130,6 +131,8 @@ export const ordersController = {
       orderNumber: order.orderNumber,
       actor: req.user.email,
     })
+
+    broadcastFromReq(req, '*')
 
     res.status(201).json({
       success: true,

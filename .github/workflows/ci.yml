@@ -113,6 +113,19 @@ jobs:
         env:
           NODE_ENV: test
 
+      # Run AI services unit tests (Document AI / Vertex / Excel parser /
+      # confidence tier / analytics / assistant tools / realtime helper).
+      # GCP creds intentionally absent — services must degrade to null.
+      - name: Run AI services tests
+        run: node --test test/ai-services.test.mjs
+        env:
+          NODE_ENV: test
+          GOOGLE_APPLICATION_CREDENTIALS: ""
+          GCP_PROJECT_ID: ""
+          DOCUMENT_AI_PROCESSOR_ID: ""
+          VERTEX_AI_MODEL: ""
+          ANTHROPIC_API_KEY: ""
+
       # Smoke-test: boot Express server, verify it stays alive for 5s
       - name: Backend smoke test
         run: |
@@ -132,6 +145,32 @@ jobs:
           JWT_SECRET: ci-test-secret
           # mongodb-memory-server provides an ephemeral MongoDB instance
           MONGODB_URI: ""
+
+      # Page-by-page smoke: GETs, mutations, and frontend→backend coverage
+      - name: Run page-by-page smoke (GETs, mutations, frontend coverage)
+        run: |
+          node backend/src/server.js &
+          SERVER_PID=$!
+          # Wait up to 30s for /api/health
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:4000/api/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          set -e
+          npm run smoke:get
+          npm run smoke:write
+          npm run smoke:ui
+          kill $SERVER_PID 2>/dev/null || true
+        env:
+          NODE_ENV: test
+          PORT: 4000
+          JWT_SECRET: ci-test-secret
+          MONGODB_URI: ""
+          GOOGLE_APPLICATION_CREDENTIALS: ""
+          GCP_PROJECT_ID: ""
+          DOCUMENT_AI_PROCESSOR_ID: ""
+          VERTEX_AI_MODEL: ""
+          ANTHROPIC_API_KEY: ""
 
   # ── 3. Frontend ───────────────────────────────────────────
   frontend:

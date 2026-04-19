@@ -179,10 +179,63 @@ function normalizeAIResult(aiResult) {
 
 export const aiReExtractService = {
   /**
-   * Check if AI re-extraction is available (API key configured).
+   * Check if AI re-extraction is available (Vertex Gemini OR Anthropic Claude).
    */
   isAvailable() {
     return !!ANTHROPIC_API_KEY
+  },
+
+  /**
+   * Vertex-first re-extraction. Tries Gemini (gemini-1.5-pro by default) and
+   * falls back to Claude when unavailable. Returns the same shape as
+   * `reExtract` so existing callers don't change.
+   */
+  async smartReExtract(rawText, currentItems = [], knownMeta = {}) {
+    try {
+      const { vertexAiService } = await import('./vertex-ai.service.js')
+      if (await vertexAiService.isAvailable()) {
+        const v = await vertexAiService.extractInvoiceFields(rawText)
+        if (v) {
+          // Map Gemini's flat schema → existing normalized shape so callers
+          // that consume `reExtract` results work unchanged.
+          const normalized = {
+            lineItems: (v.line_items || []).map((it, idx) => ({
+              sno: idx + 1,
+              description: it.description || '',
+              hsn: it.hsn || '',
+              quantity: Number(it.quantity) || 0,
+              unitPrice: Number(it.unit_price) || 0,
+              amount: Number(it.amount) || 0,
+              tax: 0,
+              aiConfidence: {},
+              aiFlags: [],
+            })),
+            invoiceMeta: {
+              vendorName: v.vendor || null,
+              gstin: v.gstin || null,
+              customerName: null,
+              customerGstin: null,
+              invoiceNumber: v.invoice_number || null,
+              invoiceDate: v.date || null,
+            },
+            financials: {
+              subtotal: Number(v.subtotal) || 0,
+              taxAmount: Number(v.tax_amount) || 0,
+              totalAmount: Number(v.total) || 0,
+              validated: true,
+            },
+            corrections: [],
+            model: v.model,
+            provider: 'vertex_ai',
+          }
+          return normalized
+        }
+      }
+    } catch (err) {
+      logger.warn('ai_reextract.vertex_failed', { message: err.message })
+    }
+    if (ANTHROPIC_API_KEY) return this.reExtract(rawText, currentItems, knownMeta)
+    throw new Error('No AI re-extraction provider configured (set GOOGLE_APPLICATION_CREDENTIALS or ANTHROPIC_API_KEY)')
   },
 
   /**

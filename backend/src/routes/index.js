@@ -3,6 +3,7 @@ import { Router } from 'express'
 import authRouter from './auth.routes.js'
 import accountingRouter from './accounting.routes.js'
 import aiAssistantRouter from './ai-assistant.routes.js'
+import analyticsRouter from './analytics.routes.js'
 import auditRouter from './audit.routes.js'
 import blockchainRouter from './blockchain.routes.js'
 import customersRouter from './customers.routes.js'
@@ -49,5 +50,6 @@ router.use('/delivery', deliveryRouter)
 router.use('/invoice-scanner', invoiceScannerRouter)
 router.use('/whatsapp', whatsappBotRouter)
 router.use('/assistant', aiAssistantRouter)
+router.use('/analytics', analyticsRouter)
 
 export default router

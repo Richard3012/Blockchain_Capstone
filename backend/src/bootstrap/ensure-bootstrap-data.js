@@ -5,6 +5,7 @@ import { databaseState } from '../config/database.js'
 import { ROLES } from '../constants/roles.js'
 import { Account } from '../models/account.model.js'
 import { AuditLog } from '../models/audit-log.model.js'
+import { AttendanceLog } from '../models/attendance-log.model.js'
 import { BlockchainRecord } from '../models/blockchain-record.model.js'
 import Company from '../models/company.model.js'
 import { Customer } from '../models/customer.model.js'
@@ -17,6 +18,8 @@ import { MaterialPlan } from '../models/material-plan.model.js'
 import { Payment } from '../models/payment.model.js'
 import { Product } from '../models/product.model.js'
 import { ProjectRecord } from '../models/project-record.model.js'
+import { PurchaseOrder } from '../models/purchase-order.model.js'
+import { GoodsReceipt } from '../models/goods-receipt.model.js'
 import { SalesOrder } from '../models/sales-order.model.js'
 import { Store } from '../models/store.model.js'
 import { Supplier } from '../models/supplier.model.js'
@@ -122,10 +125,12 @@ const projectSeed = [
     spent: 820000,
     start: new Date(new Date().getFullYear(), 0, 15),
     end: new Date(new Date().getFullYear(), 5, 30),
-    progress: 55,
+    progress: 25,
     milestones: [
+      { name: 'Site Survey & Planning', due: new Date(new Date().getFullYear(), 0, 31), done: true },
       { name: 'Foundation Complete', due: new Date(new Date().getFullYear(), 1, 28), done: true },
       { name: 'Steel Structure Erected', due: new Date(new Date().getFullYear(), 3, 15), done: false },
+      { name: 'Roof & Electrical', due: new Date(new Date().getFullYear(), 5, 1), done: false },
     ],
   },
   {
@@ -138,10 +143,13 @@ const projectSeed = [
     spent: 450000,
     start: new Date(new Date().getFullYear(), 1, 1),
     end: new Date(new Date().getFullYear(), 4, 31),
-    progress: 60,
+    progress: 40,
     milestones: [
+      { name: 'Requirements Gathering', due: new Date(new Date().getFullYear(), 1, 15), done: true },
       { name: 'Data Migration Dry Run', due: new Date(new Date().getFullYear(), 2, 15), done: true },
       { name: 'UAT Sign-off', due: new Date(new Date().getFullYear(), 3, 30), done: false },
+      { name: 'Go-Live & Hypercare', due: new Date(new Date().getFullYear(), 4, 31), done: false },
+      { name: 'Post Go-Live Audit', due: new Date(new Date().getFullYear(), 5, 15), done: false },
     ],
   },
 ]
@@ -351,6 +359,37 @@ export const ensureBootstrapData = async () => {
       verificationStatus: 'verified',
       createdBy: users['finance@blockerp.local']._id,
     },
+    {
+      invoiceNumber: 'INV-DEMO-005',
+      order: orderDocs['SO-DEMO-003']._id,
+      customer: customers['CUST-001']._id,
+      store: stores['MAIN-STORE']._id,
+      status: 'paid',
+      issueDate: invoiceMonthDate(3),
+      dueDate: invoiceMonthDate(2),
+      subtotal: 4500,
+      taxAmount: 810,
+      totalAmount: 5310,
+      amountPaid: 5310,
+      balanceDue: 0,
+      verificationStatus: 'verified',
+      createdBy: users['finance@blockerp.local']._id,
+    },
+    {
+      invoiceNumber: 'INV-DEMO-006',
+      customer: customers['CUST-003']._id,
+      store: stores['CITY-STORE']._id,
+      status: 'issued',
+      issueDate: invoiceMonthDate(0),
+      dueDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 15),
+      subtotal: 12500,
+      taxAmount: 2250,
+      totalAmount: 14750,
+      amountPaid: 0,
+      balanceDue: 14750,
+      verificationStatus: 'not_requested',
+      createdBy: users['finance@blockerp.local']._id,
+    },
   ]
 
   const invoiceDocs = {}
@@ -393,6 +432,134 @@ export const ensureBootstrapData = async () => {
     },
     { new: true, upsert: true },
   )
+
+  /* ── Purchase Orders ────────────────────────────── */
+  const purchaseOrderSeed = [
+    {
+      orderNumber: 'PO-DEMO-001',
+      supplier: suppliers['SUP-001']._id,
+      store: stores['CENTRAL-WH']._id,
+      status: 'received',
+      expectedDeliveryDate: invoiceMonthDate(3),
+      items: [
+        { product: products['SKU-001']._id, quantity: 50, unitCost: 2800, receivedQuantity: 50 },
+        { product: products['SKU-003']._id, quantity: 200, unitCost: 200, receivedQuantity: 200 },
+      ],
+      subtotal: 180000,
+      taxAmount: 32400,
+      totalAmount: 212400,
+      notes: 'Quarterly restock — electronics and consumables',
+      createdBy: users['procurement@blockerp.local']._id,
+    },
+    {
+      orderNumber: 'PO-DEMO-002',
+      supplier: suppliers['SUP-002']._id,
+      store: stores['MAIN-STORE']._id,
+      status: 'ordered',
+      expectedDeliveryDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 10),
+      items: [
+        { product: products['SKU-002']._id, quantity: 10, unitCost: 5200, receivedQuantity: 0 },
+      ],
+      subtotal: 52000,
+      taxAmount: 9360,
+      totalAmount: 61360,
+      notes: 'Display monitors for City Store',
+      createdBy: users['procurement@blockerp.local']._id,
+    },
+    {
+      orderNumber: 'PO-DEMO-003',
+      supplier: suppliers['SUP-001']._id,
+      store: stores['CITY-STORE']._id,
+      status: 'approved',
+      expectedDeliveryDate: new Date(new Date().getFullYear(), new Date().getMonth(), 25),
+      items: [
+        { product: products['SKU-004']._id, quantity: 5, unitCost: 7500, receivedQuantity: 0 },
+        { product: products['SKU-001']._id, quantity: 20, unitCost: 2800, receivedQuantity: 0 },
+      ],
+      subtotal: 93500,
+      taxAmount: 16830,
+      totalAmount: 110330,
+      notes: 'Premium product restock',
+      createdBy: users['procurement@blockerp.local']._id,
+    },
+    {
+      orderNumber: 'PO-DEMO-004',
+      supplier: suppliers['SUP-002']._id,
+      store: stores['CENTRAL-WH']._id,
+      status: 'partially_received',
+      expectedDeliveryDate: invoiceMonthDate(0),
+      items: [
+        { product: products['SKU-003']._id, quantity: 500, unitCost: 200, receivedQuantity: 300 },
+      ],
+      subtotal: 100000,
+      taxAmount: 18000,
+      totalAmount: 118000,
+      notes: 'Bulk consumables — partial delivery received',
+      createdBy: users['procurement@blockerp.local']._id,
+    },
+    {
+      orderNumber: 'PO-DEMO-005',
+      supplier: suppliers['SUP-001']._id,
+      store: stores['MAIN-STORE']._id,
+      status: 'draft',
+      expectedDeliveryDate: new Date(new Date().getFullYear(), new Date().getMonth() + 2, 1),
+      items: [
+        { product: products['SKU-002']._id, quantity: 15, unitCost: 5200, receivedQuantity: 0 },
+        { product: products['SKU-004']._id, quantity: 8, unitCost: 7500, receivedQuantity: 0 },
+      ],
+      subtotal: 138000,
+      taxAmount: 24840,
+      totalAmount: 162840,
+      notes: 'Next quarter procurement plan',
+      createdBy: users['procurement@blockerp.local']._id,
+    },
+  ]
+
+  const poDocs = {}
+  for (const po of purchaseOrderSeed) {
+    poDocs[po.orderNumber] = await PurchaseOrder.findOneAndUpdate(
+      { orderNumber: po.orderNumber },
+      { ...po, companyId: company._id },
+      { new: true, upsert: true },
+    )
+  }
+
+  /* ── Goods Receipts ─────────────────────────────── */
+  const goodsReceiptSeed = [
+    {
+      receiptNumber: 'GR-DEMO-001',
+      purchaseOrder: poDocs['PO-DEMO-001']._id,
+      store: stores['CENTRAL-WH']._id,
+      status: 'verified',
+      receivedAt: invoiceMonthDate(3),
+      supplierInvoiceReference: 'RSL-INV-2026-1147',
+      items: [
+        { product: products['SKU-001']._id, quantityReceived: 50, unitCost: 2800 },
+        { product: products['SKU-003']._id, quantityReceived: 200, unitCost: 200 },
+      ],
+      createdBy: users['procurement@blockerp.local']._id,
+    },
+    {
+      receiptNumber: 'GR-DEMO-002',
+      purchaseOrder: poDocs['PO-DEMO-004']._id,
+      store: stores['CENTRAL-WH']._id,
+      status: 'received',
+      receivedAt: invoiceMonthDate(0),
+      supplierInvoiceReference: 'MWD-INV-2026-0584',
+      items: [
+        { product: products['SKU-003']._id, quantityReceived: 300, unitCost: 200 },
+      ],
+      createdBy: users['procurement@blockerp.local']._id,
+    },
+  ]
+
+  for (const gr of goodsReceiptSeed) {
+    await GoodsReceipt.findOneAndUpdate(
+      { receiptNumber: gr.receiptNumber },
+      { ...gr, companyId: company._id },
+      { new: true, upsert: true },
+    )
+  }
 
   await accountingService.initializeAccounts(company._id)
 
@@ -616,12 +783,72 @@ export const ensureBootstrapData = async () => {
     )
   }
 
+  const empDocs = {}
   for (const employee of employeeSeed) {
-    await EmployeeRecord.findOneAndUpdate(
+    empDocs[employee.employeeNumber] = await EmployeeRecord.findOneAndUpdate(
       { companyId: company._id, employeeNumber: employee.employeeNumber },
       { ...employee, companyId: company._id },
       { new: true, upsert: true },
     )
+  }
+
+  /* ── Attendance Logs (last 30 days) ─────────────── */
+  const attendancePatterns = {
+    'EMP-0001': { presentRate: 0.96, lateRate: 0.04 },
+    'EMP-0002': { presentRate: 0.98, lateRate: 0.02 },
+    'EMP-0003': { presentRate: 0.91, lateRate: 0.05 },
+  }
+
+  for (const [empNum, pattern] of Object.entries(attendancePatterns)) {
+    const emp = empDocs[empNum]
+    if (!emp) continue
+
+    for (let d = 29; d >= 0; d--) {
+      const date = new Date()
+      date.setDate(date.getDate() - d)
+      date.setHours(0, 0, 0, 0)
+
+      if (date.getDay() === 0) continue
+
+      const rand = Math.random()
+      let status = 'present'
+      if (rand > pattern.presentRate + pattern.lateRate) status = 'absent'
+      else if (rand > pattern.presentRate) status = 'late'
+
+      const checkIn = new Date(date)
+      checkIn.setHours(status === 'late' ? 10 : 9, Math.floor(Math.random() * 30), 0)
+      const checkOut = new Date(date)
+      checkOut.setHours(17 + Math.floor(Math.random() * 2), Math.floor(Math.random() * 60), 0)
+      const hoursWorked = status === 'absent' ? 0 : Math.round(((checkOut - checkIn) / 3600000) * 10) / 10
+
+      await AttendanceLog.findOneAndUpdate(
+        { companyId: company._id, employee: emp._id, date },
+        {
+          companyId: company._id,
+          employee: emp._id,
+          employeeName: emp.name,
+          date,
+          checkIn: status !== 'absent' ? checkIn : null,
+          checkOut: status !== 'absent' ? checkOut : null,
+          status,
+          hoursWorked,
+          overtimeHours: hoursWorked > 8 ? Math.round((hoursWorked - 8) * 10) / 10 : 0,
+          markedBy: users['admin@blockerp.local']._id,
+        },
+        { upsert: true },
+      )
+    }
+
+    const logs = await AttendanceLog.find({
+      companyId: company._id,
+      employee: emp._id,
+      date: { $gte: new Date(Date.now() - 30 * 86400000) },
+    }).lean()
+    const total = logs.length
+    const present = logs.filter((l) => ['present', 'late'].includes(l.status)).length
+    const halfDays = logs.filter((l) => l.status === 'half-day').length
+    const pct = total > 0 ? Math.round(((present - halfDays * 0.5) / total) * 100) : 0
+    await EmployeeRecord.findByIdAndUpdate(emp._id, { attendance: pct })
   }
 
   for (const workOrder of workOrderSeed) {
@@ -641,9 +868,12 @@ export const ensureBootstrapData = async () => {
   }
 
   for (const project of projectSeed) {
+    const done = (project.milestones || []).filter((m) => m.done).length
+    const total = (project.milestones || []).length
+    const progress = total > 0 ? Math.round((done / total) * 100) : project.progress
     await ProjectRecord.findOneAndUpdate(
       { companyId: company._id, projectNumber: project.projectNumber },
-      { ...project, companyId: company._id },
+      { ...project, progress, companyId: company._id },
       { new: true, upsert: true },
     )
   }

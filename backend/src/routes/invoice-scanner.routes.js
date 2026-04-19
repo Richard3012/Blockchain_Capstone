@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { requireAuth } from '../middlewares/auth.js'
+import { invoiceScannerLimiter, ocrIntelligenceLimiter } from '../middlewares/ai-rate-limit.js'
 import { invoiceScannerController } from '../controllers/invoice-scanner.controller.js'
 
 const upload = multer({
@@ -29,29 +30,29 @@ const upload = multer({
 const router = Router()
 
 // Parse/preview — extract + correct + validate without persisting to ERP
-router.post('/parse', requireAuth, upload.single('file'), invoiceScannerController.parse)
+router.post('/parse', requireAuth, invoiceScannerLimiter, upload.single('file'), invoiceScannerController.parse)
 
 // Full pipeline — parse + correct + validate + create invoice + inventory + ledger + blockchain
-router.post('/process', requireAuth, upload.single('file'), invoiceScannerController.process)
+router.post('/process', requireAuth, invoiceScannerLimiter, upload.single('file'), invoiceScannerController.process)
 
 // Standalone validation — validate fields without processing
-router.post('/validate', requireAuth, invoiceScannerController.validate)
+router.post('/validate', requireAuth, ocrIntelligenceLimiter, invoiceScannerController.validate)
 
 // ── OCR Intelligence API (non-breaking additions) ─────────
 // Preprocess image file with multi-pass OCR
-router.post('/ocr/preprocess', requireAuth, upload.single('file'), invoiceScannerController.preprocess)
+router.post('/ocr/preprocess', requireAuth, ocrIntelligenceLimiter, upload.single('file'), invoiceScannerController.preprocess)
 
 // Parse raw OCR text into structured fields (no DB, no validation)
-router.post('/ocr/parse', requireAuth, invoiceScannerController.ocrParse)
+router.post('/ocr/parse', requireAuth, ocrIntelligenceLimiter, invoiceScannerController.ocrParse)
 
 // Validate + financial consistency check (no DB writes)
-router.post('/ocr/validate', requireAuth, invoiceScannerController.ocrValidate)
+router.post('/ocr/validate', requireAuth, ocrIntelligenceLimiter, invoiceScannerController.ocrValidate)
 
 // Run intelligence correction layers
-router.post('/ocr/correct', requireAuth, invoiceScannerController.ocrCorrect)
+router.post('/ocr/correct', requireAuth, ocrIntelligenceLimiter, invoiceScannerController.ocrCorrect)
 
 // AI deep re-extraction using Claude (extended thinking, column-swap fix)
-router.post('/ocr/ai-reextract', requireAuth, invoiceScannerController.aiReExtract)
+router.post('/ocr/ai-reextract', requireAuth, ocrIntelligenceLimiter, invoiceScannerController.aiReExtract)
 
 // Record user correction (learning layer)
 router.post('/corrections', requireAuth, invoiceScannerController.recordCorrection)
@@ -66,7 +67,7 @@ router.get('/list', requireAuth, invoiceScannerController.list)
 router.get('/scan/:scanId', requireAuth, invoiceScannerController.getScan)
 
 // Retry a failed scan
-router.post('/retry/:scanId', requireAuth, invoiceScannerController.retry)
+router.post('/retry/:scanId', requireAuth, invoiceScannerLimiter, invoiceScannerController.retry)
 
 // Reject a scan
 router.post('/reject/:scanId', requireAuth, invoiceScannerController.reject)

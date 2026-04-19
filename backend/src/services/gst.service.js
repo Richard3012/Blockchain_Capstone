@@ -229,6 +229,7 @@ export const gstService = {
       companyId,
       issueDate: { $gte: startDate, $lte: endDate },
       status: { $ne: 'cancelled' },
+      source: { $ne: 'scanner' },
     }).lean()
 
     const breakdown = computeTaxBreakdown(invoices)
@@ -261,6 +262,7 @@ export const gstService = {
       companyId,
       status: { $in: ['issued', 'paid'] },
       issueDate: { $gte: startDate, $lte: endDate },
+      source: { $ne: 'scanner' },
     }).populate('customer').lean()
 
     const breakdown = computeTaxBreakdown(invoices)

@@ -100,8 +100,9 @@ export const invoiceScannerService = {
    * Enhanced with better post-processing and cross-field validation.
    */
   parseOCRText(rawText) {
-    const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean)
-    const text = rawText
+    const safeText = typeof rawText === 'string' ? rawText : String(rawText || '')
+    const lines = safeText.split('\n').map((l) => l.trim()).filter(Boolean)
+    const text = safeText
 
     // GSTIN — match both strict and relaxed patterns
     // Standard: 2 digits + 5 alpha + 4 digits + 1 alpha + 1 alnum + Z + 1 alnum
@@ -168,6 +169,8 @@ export const invoiceScannerService = {
       /^[\d\s\-+().]+$/,                      // phone numbers
       /^\d{6}$/,                              // PIN codes
       /^(to|from|ship\s*to|bill\s*to|buyer|consignee|place\s*of)\s*[:\-]?$/i, // labels only
+      /\b(bill\s*to|ship\s*to)\b.*\b(bill\s*to|ship\s*to)\b/i, // multi-column: "BILL TO: ... SHIP TO:"
+      /^(bill\s*to|ship\s*to)\s*[:\-]/i, // line starting with bill/ship to label
       /^(original|duplicate|triplicate)\s*(for|copy)?/i,
       /^page\s*\d/i,
       /^(e\.?\s*&?\s*o\.?\s*e|subject\s*to)/i,
@@ -241,20 +244,28 @@ export const invoiceScannerService = {
       if (vendorName.length <= 2) vendorName = null
     }
 
-    // Invoice number — multiple patterns (expanded for OCR variations)
+    // Invoice number — multiple patterns (expanded for OCR variations + real-world formats)
     const invPatterns = [
-      /invoice\s*(?:no|number|#|num)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-      /inv[.\-]?\s*#?\s*:?\s*([A-Z0-9\-\/]+)/i,
-      /proforma\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-      /bill\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-      /receipt\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-      /voucher\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-      /challan\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+      /invoice\s*(?:no|number|#|num)\.?\s*[:\-]?\s*([A-Z0-9\-\/\._]+)/i,
+      /inv[.\-]?\s*#?\s*:?\s*([A-Z0-9\-\/\._]+)/i,
+      /proforma\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/\._]+)/i,
+      /bill\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/\._]+)/i,
+      /receipt\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/\._]+)/i,
+      /voucher\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/\._]+)/i,
+      /challan\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Z0-9\-\/\._]+)/i,
+      // Real-world: "No." or "No:" followed by value
+      /(?:^|\n)\s*(?:no|sr\.?\s*no)\.?\s*[:\-]\s*([A-Z0-9\-\/\._]+)/im,
+      // Real-world: "Ref" or "Reference" number
+      /ref(?:erence)?\.?\s*(?:no|number|#)?\.?\s*[:\-]?\s*([A-Z0-9\-\/\._]+)/i,
+      // Real-world: "Tax Invoice" line with embedded number
+      /tax\s*invoice\s*[:\-#]?\s*([A-Z0-9\-\/\._]+)/i,
+      // Real-world: "D.N." or "C.N." (Debit/Credit note)
+      /[DC]\.?N\.?\s*(?:no)?\.?\s*[:\-]?\s*([A-Z0-9\-\/\._]+)/i,
     ]
     let invoiceNumber = null
     for (const p of invPatterns) {
       const m = text.match(p)
-      if (m) { invoiceNumber = m[1]; break }
+      if (m && m[1].length >= 2) { invoiceNumber = m[1].replace(/[._]+$/, ''); break }
     }
 
     // Date — multiple formats (expanded for OCR variations)
@@ -342,6 +353,26 @@ export const invoiceScannerService = {
       if (lineItems.length) break // use first pattern that works
     }
 
+    // ── Labeled format: "Widget A  Qty: 5  Rate: 200  Amount: 1000" ──
+    if (lineItems.length === 0) {
+      const labeledRx = /^(.+?)\s+(?:Qty|Quantity)\s*[:\-]?\s*(\d+)\s+(?:Rate|Price|Unit\s*Price)\s*[:\-]?\s*(?:₹|Rs\.?)?\s*([\d,]+(?:\.\d{1,2})?)\s+(?:Amount|Total)\s*[:\-]?\s*(?:₹|Rs\.?)?\s*([\d,]+(?:\.\d{1,2})?)/gmi
+      let lm
+      let sno = 1
+      while ((lm = labeledRx.exec(text)) !== null) {
+        const qty = parseInt(lm[2])
+        const unitPrice = parseNum(lm[3])
+        const amount = parseNum(lm[4])
+        lineItems.push({
+          sno: sno++,
+          description: lm[1].trim(),
+          quantity: qty,
+          unitPrice: Math.round(unitPrice * 100) / 100,
+          tax: 0,
+          amount: Math.round(amount * 100) / 100,
+        })
+      }
+    }
+
     // ── HSN Guard: detect when regex misidentified HSN codes as quantities ──
     // HSN codes are 4-8 digit integers (≥1000). If any "quantity" looks like
     // an HSN code, the regex produced garbage → clear items and let the
@@ -359,7 +390,10 @@ export const invoiceScannerService = {
       /\b(qty|quantity|rate|price|amount|total)\b/i.test(text)
 
     if (hasHSNasQty || hasTableHeader) {
-      lineItems.length = 0 // clear — table reconstruction will rebuild
+      // Mark for table reconstruction but keep regex-parsed items as fallback.
+      // The table reconstruction engine will replace these if it has word
+      // bounding-box data; otherwise the regex items are better than nothing.
+      lineItems._needsTableReconstruction = true
     }
 
     // ── Post-processing: cross-field inference ──────────
@@ -464,7 +498,7 @@ export const invoiceScannerService = {
    * Now with scan history tracking & Socket.IO real-time updates.
    */
   async processScannedInvoice(companyId, {
-    rawText,
+    rawText: rawTextInput,
     parsedOverrides,
     customer,
     store,
@@ -473,6 +507,13 @@ export const invoiceScannerService = {
     scanId,
     io,
   }) {
+    // Normalize: rawText may be an object { text, words } from extractText
+    let rawText = rawTextInput
+    if (rawText && typeof rawText === 'object') {
+      rawText = rawText.text || ''
+    }
+    rawText = typeof rawText === 'string' ? rawText : String(rawText || '')
+
     const startTime = Date.now()
 
     // Get or create scan record
@@ -566,6 +607,7 @@ export const invoiceScannerService = {
       scan.status = 'correcting'
       await scan.save()
 
+      let autoResolutions = {}
       try {
         // Apply vendor template hints
         const template = await vendorLearningService.findTemplate(companyId, {
@@ -590,11 +632,12 @@ export const invoiceScannerService = {
         scan.duplicates = intelligence.duplicates
 
         // Confidence Scoring 2.0 — with auto-resolution boost + table reconstruction meta
-        const autoResolutions = intelligence.autoResolutions || {}
+        autoResolutions = intelligence.autoResolutions || {}
         const scoring = confidenceScoringService.score(parsed, {
           financialConsistent: intelligence.consistent,
           autoResolutions,
           tableReconstructionMeta: intelligence.tableReconstructionMeta || null,
+          ocrOverallConfidence: scan.ocrConfidence || 0,
         })
         parsed.fieldConfidence = scoring.fieldScores
         parsed.avgConfidence = scoring.compositeScore

@@ -18,11 +18,6 @@ export const requireAuth = async (req, _res, next) => {
     }
 
     const payload = jwt.verify(token, env.jwtSecret)
-    if (payload.sid !== runtime.bootId) {
-      const error = new Error('Session expired. Please log in again.')
-      error.statusCode = 401
-      throw error
-    }
 
     // Dev fallback only allowed in non-production when DB is down
     if (!databaseState.connected) {

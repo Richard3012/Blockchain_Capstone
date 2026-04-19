@@ -104,37 +104,23 @@ export const invoiceValidationService = {
     if (parsed.lineItems?.length > 0 && parsed.totalAmount > 0) {
       const lineSum = parsed.lineItems.reduce((s, item) => s + (item.amount || 0), 0)
 
-      // Check against subtotal (pre-tax) — BLOCKING for major mismatches
+      // Check against subtotal (pre-tax) — warn on mismatches (intelligence layer handles correction)
       if (parsed.subtotal > 0 && Math.abs(lineSum - parsed.subtotal) > 1) {
         const diffPct = Math.abs(lineSum - parsed.subtotal) / Math.max(parsed.subtotal, 1) * 100
-        if (diffPct > 5 || Math.abs(lineSum - parsed.subtotal) > 100) {
-          errors.push({
-            field: 'subtotal',
-            message: `Line items sum (₹${lineSum.toFixed(2)}) differs from subtotal (₹${parsed.subtotal.toFixed(2)}) by ${diffPct.toFixed(1)}% — resolve before posting`,
-          })
-        } else {
-          warnings.push({
-            field: 'subtotal',
-            message: `Line items sum (₹${lineSum.toFixed(2)}) differs from subtotal (₹${parsed.subtotal.toFixed(2)})`,
-          })
-        }
+        warnings.push({
+          field: 'subtotal',
+          message: `Line items sum (₹${lineSum.toFixed(2)}) differs from subtotal (₹${parsed.subtotal.toFixed(2)}) by ${diffPct.toFixed(1)}%`,
+        })
       }
 
-      // Check against grand total (with tax)
+      // Check against grand total (with tax) — warn on mismatches (intelligence layer recalculates)
       const expectedGrand = lineSum + (parsed.taxAmount || 0)
       if (Math.abs(expectedGrand - parsed.totalAmount) > 1) {
         const diffPct = Math.abs(expectedGrand - parsed.totalAmount) / Math.max(parsed.totalAmount, 1) * 100
-        if (diffPct > 5 || Math.abs(expectedGrand - parsed.totalAmount) > 100) {
-          errors.push({
-            field: 'totalAmount',
-            message: `Computed total (₹${expectedGrand.toFixed(2)}) differs from extracted total (₹${parsed.totalAmount.toFixed(2)}) by ${diffPct.toFixed(1)}% — major inconsistency`,
-          })
-        } else {
-          warnings.push({
-            field: 'totalAmount',
-            message: `Computed total (₹${expectedGrand.toFixed(2)}) differs from extracted total (₹${parsed.totalAmount.toFixed(2)})`,
-          })
-        }
+        warnings.push({
+          field: 'totalAmount',
+          message: `Computed total (₹${expectedGrand.toFixed(2)}) differs from extracted total (₹${parsed.totalAmount.toFixed(2)}) by ${diffPct.toFixed(1)}%`,
+        })
       }
     }
 

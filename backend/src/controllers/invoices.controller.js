@@ -16,6 +16,7 @@ import { blockchainService } from '../services/blockchain.service.js'
 import { verificationService } from '../services/verification.service.js'
 import { companyFilter } from '../utils/scope.js'
 import { logger } from '../utils/logger.js'
+import { broadcastFromReq } from '../utils/realtime.js'
 
 const invoiceSchema = z.object({
   order: z.string().optional(),
@@ -108,6 +109,11 @@ export const invoicesController = {
       actor: req.user._id,
     })
 
+    broadcastFromReq(req, 'revenue-trend')
+    broadcastFromReq(req, 'expense-breakdown')
+    broadcastFromReq(req, 'gst-summary')
+    broadcastFromReq(req, 'vendor-spending')
+
     res.status(201).json({ success: true, data: { invoice, blockchainRecord } })
   }),
   list: asyncHandler(async (req, res) => {
@@ -190,6 +196,8 @@ export const invoicesController = {
     })
 
     logger.info('finance.payment_recorded', { invoiceId: invoice._id.toString(), paymentId: payment._id.toString(), amount })
+
+    broadcastFromReq(req, 'revenue-trend')
 
     const refreshedRow = await Invoice.findOne({ _id: invoice._id, companyId: req.user.companyId }).lean()
     const [refreshed] = await batchEnrichInvoices(refreshedRow ? [refreshedRow] : [], req.user.companyId)

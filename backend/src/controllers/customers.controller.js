@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import { asyncHandler } from '../middlewares/async-handler.js'
 import { Customer } from '../models/customer.model.js'
+import { Invoice } from '../models/invoice.model.js'
+import { SalesOrder } from '../models/sales-order.model.js'
 import { companyFilter } from '../utils/scope.js'
 import { logger } from '../utils/logger.js'
 
@@ -19,7 +21,35 @@ const customerSchema = z.object({
 
 export const customersController = {
   list: asyncHandler(async (req, res) => {
-    const data = await Customer.find(companyFilter(req.user)).sort({ createdAt: -1 })
+    const filter = companyFilter(req.user)
+    const customers = await Customer.find(filter).sort({ createdAt: -1 }).lean()
+
+    const customerIds = customers.map((c) => c._id)
+
+    const [orderAgg, invoiceAgg] = await Promise.all([
+      SalesOrder.aggregate([
+        { $match: { companyId: filter.companyId, customer: { $in: customerIds } } },
+        { $group: { _id: '$customer', count: { $sum: 1 }, total: { $sum: '$totalAmount' } } },
+      ]),
+      Invoice.aggregate([
+        { $match: { companyId: filter.companyId, customer: { $in: customerIds }, status: 'paid' } },
+        { $group: { _id: '$customer', total: { $sum: '$totalAmount' } } },
+      ]),
+    ])
+
+    const orderMap = new Map(orderAgg.map((r) => [String(r._id), r]))
+    const invoiceMap = new Map(invoiceAgg.map((r) => [String(r._id), r]))
+
+    const data = customers.map((c) => {
+      const ord = orderMap.get(String(c._id))
+      const inv = invoiceMap.get(String(c._id))
+      return {
+        ...c,
+        totalOrders: ord?.count || 0,
+        totalPurchases: inv?.total || ord?.total || 0,
+      }
+    })
+
     res.json({ success: true, data })
   }),
   getById: asyncHandler(async (req, res) => {

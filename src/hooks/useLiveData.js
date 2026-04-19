@@ -111,6 +111,8 @@ export function useLiveData(...collections) {
               lineItems: i.lineItems,
               blockchainHash: i.hash || '',
               verificationStatus: i.verificationStatus || 'not_requested',
+              source: i.source || 'manual',
+              vendorName: i.vendorName || null,
               tamperSource: i.tamperSource || null,
               mismatchReasons: i.mismatchReasons || [],
               fieldDiffs: i.fieldDiffs || [],

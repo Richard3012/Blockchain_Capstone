@@ -37,4 +37,21 @@ export const env = {
   pinataApiKey: process.env.PINATA_API_KEY || '',
   pinataGateway: process.env.PINATA_GATEWAY || '',
   googleVisionApiKey: process.env.GOOGLE_VISION_API_KEY || '',
+  // Google Cloud (service-account based — preferred for Document AI / Vertex AI)
+  googleApplicationCredentials: process.env.GOOGLE_APPLICATION_CREDENTIALS || '',
+  gcpProjectId: process.env.GCP_PROJECT_ID || '',
+  gcpLocation: process.env.GCP_LOCATION || 'us',
+  documentAiProcessorId: process.env.DOCUMENT_AI_PROCESSOR_ID || '',
+  // Vertex AI / Gemini
+  vertexAiModel: process.env.VERTEX_AI_MODEL || 'gemini-1.5-flash',
+  vertexAiReextractModel: process.env.VERTEX_AI_REEXTRACT_MODEL || 'gemini-1.5-pro',
+  // Anthropic Claude (fallback for re-extract)
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+  // LlamaParse (primary document parser)
+  llamaParseApiKey: process.env.LLAMA_PARSE_API_KEY || process.env.LLAMA_CLOUD_API_KEY || '',
+  // Privacy & cost guards
+  aiRedactPii: String(process.env.AI_REDACT_PII || 'false').toLowerCase() === 'true',
+  aiMaxInputChars: parseNumber(process.env.AI_MAX_INPUT_CHARS, 60_000),
+  // Background queue concurrency
+  ocrQueueConcurrency: parseNumber(process.env.OCR_QUEUE_CONCURRENCY, 2),
 }

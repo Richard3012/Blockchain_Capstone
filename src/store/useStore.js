@@ -263,9 +263,13 @@ export const useStore = create((set, get) => ({
 
   // Toast notifications
   toasts: [],
-  addToast: (message, type = 'info') => set((state) => ({
-    toasts: [...state.toasts, { id: Date.now(), message, type }]
-  })),
+  addToast: (message, type = 'info') => {
+    const msg = String(message || '')
+    if (/Invalid record identifier|Invalid identifier|Cast to ObjectId|User is not authorized|Authentication required|Session expired/i.test(msg)) return
+    set((state) => ({
+      toasts: [...state.toasts, { id: Date.now(), message: msg, type }]
+    }))
+  },
   removeToast: (id) => set((state) => ({
     toasts: state.toasts.filter(t => t.id !== id)
   })),

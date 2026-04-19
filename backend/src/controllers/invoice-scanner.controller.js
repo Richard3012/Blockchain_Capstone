@@ -6,6 +6,7 @@ import { confidenceScoringService } from '../services/ocr-confidence.service.js'
 import { vendorLearningService } from '../services/ocr-vendor-learning.service.js'
 import { fileExtractorService } from '../services/file-extractor.service.js'
 import { aiReExtractService } from '../services/ai-reextract.service.js'
+import { llamaParseService } from '../services/llamaparse.service.js'
 import { logger } from '../utils/logger.js'
 
 // Lazy-load preprocess service (depends on sharp, may not be available in test)
@@ -63,7 +64,59 @@ export const invoiceScannerController = {
     let rawText = ''
     let ocrMeta = {}
 
-    if (req.file && req.file.mimetype?.startsWith('image/')) {
+    if (req.file) {
+      // ── PRIMARY: Try LlamaParse first (all file types) ──
+      let llamaUsed = false
+      if (llamaParseService.isAvailable()) {
+        try {
+          await invoiceScannerService.updateScanStage(scan, 'preprocess', 'active', 'LlamaParse: uploading...', io)
+          scan.status = 'preprocessing'
+          await scan.save()
+
+          const lpResult = await llamaParseService.parse(
+            req.file.buffer,
+            req.file.originalname,
+            req.file.mimetype,
+            {
+              emitProgress: (msg) => {
+                if (io) io.emit('scanner:stage', { scanId: scan._id, stage: 'preprocess', status: 'active', message: msg })
+              },
+            },
+          )
+
+          if (lpResult.text && lpResult.text.replace(/\s/g, '').length >= 30) {
+            rawText = lpResult.text
+            ocrMeta = {
+              variant: lpResult.variant,
+              ocrConfidence: lpResult.confidence,
+              allResults: [{ variant: lpResult.variant, confidence: lpResult.confidence, textLength: lpResult.text.length }],
+              words: lpResult.words || [],
+              preprocessDurationMs: lpResult.durationMs,
+              markdown: lpResult.markdown,
+              parsedFields: lpResult.parsedFields || null,
+            }
+            scan.ocrVariant = lpResult.variant
+            scan.ocrConfidence = lpResult.confidence
+            scan.preprocessDurationMs = lpResult.durationMs
+            llamaUsed = true
+            await invoiceScannerService.updateScanStage(scan, 'preprocess', 'success',
+              `LlamaParse: ${lpResult.text.length} chars, ${lpResult.pages} pages (${(lpResult.durationMs / 1000).toFixed(1)}s)`, io)
+            logger.info('scanner.llamaparse_success', {
+              chars: lpResult.text.length,
+              words: lpResult.words?.length || 0,
+              pages: lpResult.pages,
+              durationMs: lpResult.durationMs,
+            })
+          } else {
+            logger.warn('scanner.llamaparse_sparse', { chars: (lpResult.text || '').length })
+          }
+        } catch (lpErr) {
+          logger.warn('scanner.llamaparse_failed', { error: lpErr.message })
+        }
+      }
+
+      // ── FALLBACK: existing OCR pipeline ──
+      if (!llamaUsed && req.file.mimetype?.startsWith('image/')) {
       // Image files: use multi-pass OCR with preprocessing
       await invoiceScannerService.updateScanStage(scan, 'preprocess', 'active', 'Enhancing image quality...', io)
       scan.status = 'preprocessing'
@@ -96,10 +149,89 @@ export const invoiceScannerController = {
         rawText = await fileExtractorService.extractText(req.file.buffer, req.file.mimetype, req.file.originalname)
         await invoiceScannerService.updateScanStage(scan, 'preprocess', 'success', 'Standard OCR', io)
       }
-    } else if (req.file) {
+    } else if (!llamaUsed && req.file) {
       // Non-image files (PDF, DOCX, Excel, etc.)
-      await invoiceScannerService.updateScanStage(scan, 'preprocess', 'success', 'Text extraction (non-image)', io)
-      rawText = await fileExtractorService.extractText(req.file.buffer, req.file.mimetype, req.file.originalname)
+      await invoiceScannerService.updateScanStage(scan, 'preprocess', 'active', 'Text extraction...', io)
+
+      // For PDFs: try text-layer extraction first, fall back to image OCR pipeline
+      const isPdf = (req.file.mimetype || '').toLowerCase() === 'application/pdf' ||
+        (req.file.originalname || '').toLowerCase().endsWith('.pdf')
+
+      if (isPdf) {
+        // Try pdfjs-dist with positional data first, then pdf-parse, then OCR
+        let pdfResult = null
+        try {
+          pdfResult = await fileExtractorService.extractText(req.file.buffer, req.file.mimetype, req.file.originalname)
+        } catch { /* will fall back to OCR */ }
+
+        // extractText may return a string OR { text, words, pages } from pdfjs-dist
+        const pdfText = typeof pdfResult === 'string' ? pdfResult : pdfResult?.text || ''
+        const pdfWords = typeof pdfResult === 'object' && pdfResult?.words ? pdfResult.words : []
+
+        if (pdfText && pdfText.replace(/\s/g, '').length >= 50) {
+          // Good text layer — use it directly
+          rawText = pdfText
+          if (pdfWords.length > 0) {
+            // pdfjs-dist returned positional data — feed to table reconstruction
+            ocrMeta = {
+              variant: 'pdfjs_text_layer',
+              ocrConfidence: 95,
+              allResults: [{ variant: 'pdfjs_text_layer', confidence: 95, textLength: pdfText.length }],
+              words: pdfWords,
+              preprocessDurationMs: 0,
+            }
+            scan.ocrVariant = 'pdfjs_text_layer'
+            scan.ocrConfidence = 95
+            await invoiceScannerService.updateScanStage(scan, 'preprocess', 'success',
+              `PDF text+positions (${pdfWords.length} words)`, io)
+          } else {
+            await invoiceScannerService.updateScanStage(scan, 'preprocess', 'success', 'PDF text extraction', io)
+          }
+        } else {
+          // Scanned/image PDF — render to image and run full OCR pipeline
+          logger.info('scanner.pdf_ocr_fallback', { extractedChars: (pdfText || '').length })
+          const preprocessSvc = await getPreprocessService()
+          let imgBuffer = null
+          try {
+            const sharp = (await import('sharp')).default
+            imgBuffer = await sharp(req.file.buffer, { density: 300 }).png().toBuffer()
+          } catch (renderErr) {
+            logger.warn('scanner.pdf_render_failed', { error: renderErr.message })
+          }
+
+          if (imgBuffer && preprocessSvc) {
+            const startPP = Date.now()
+            const ocrResult = await preprocessSvc.multiPassOCR(imgBuffer, {
+              emitProgress: (msg) => {
+                if (io) io.emit('scanner:stage', { scanId: scan._id, stage: 'preprocess', status: 'active', message: msg })
+              },
+            })
+            rawText = ocrResult.text
+            ocrMeta = {
+              variant: ocrResult.variant,
+              ocrConfidence: ocrResult.confidence,
+              allResults: ocrResult.allResults,
+              words: ocrResult.words || [],
+              preprocessDurationMs: Date.now() - startPP,
+            }
+            scan.ocrVariant = ocrResult.variant
+            scan.ocrConfidence = ocrResult.confidence
+            scan.ocrVariantResults = ocrResult.allResults
+            scan.preprocessDurationMs = ocrMeta.preprocessDurationMs
+            await invoiceScannerService.updateScanStage(scan, 'preprocess', 'success',
+              `PDF→OCR: ${ocrResult.variant} (${ocrResult.confidence.toFixed(1)}%)`, io)
+          } else {
+            // Use whatever pdf-parse got, even if sparse
+            rawText = pdfText || ''
+            await invoiceScannerService.updateScanStage(scan, 'preprocess', 'warning', 'PDF text extraction (limited)', io)
+          }
+        }
+      } else {
+        // Non-PDF files (DOCX, Excel, etc.)
+        rawText = await fileExtractorService.extractText(req.file.buffer, req.file.mimetype, req.file.originalname)
+        await invoiceScannerService.updateScanStage(scan, 'preprocess', 'success', 'Text extraction (non-image)', io)
+      }
+      }
     } else if (req.body.rawText && typeof req.body.rawText === 'string') {
       await invoiceScannerService.updateScanStage(scan, 'preprocess', 'success', 'Direct text input', io)
       rawText = req.body.rawText
@@ -108,6 +240,15 @@ export const invoiceScannerController = {
       err.statusCode = 400
       throw err
     }
+
+    // Normalize: extractText may return { text, words } instead of a plain string
+    if (rawText && typeof rawText === 'object') {
+      if (rawText.words && !ocrMeta.words?.length) {
+        ocrMeta.words = rawText.words
+      }
+      rawText = rawText.text || ''
+    }
+    rawText = typeof rawText === 'string' ? rawText : String(rawText || '')
 
     scan.rawText = rawText
     scan.ocrRawText = rawText
@@ -129,6 +270,25 @@ export const invoiceScannerController = {
     await scan.save()
 
     let parsed = invoiceScannerService.parseOCRText(rawText)
+
+    // ── Override with LlamaParse markdown-parsed fields when available ──
+    const mdFields = ocrMeta.parsedFields
+    if (mdFields) {
+      if (mdFields.vendorName) parsed.vendorName = mdFields.vendorName
+      if (mdFields.gstin) parsed.gstin = mdFields.gstin
+      if (mdFields.invoiceNumber) parsed.invoiceNumber = mdFields.invoiceNumber
+      if (mdFields.invoiceDate) parsed.invoiceDate = mdFields.invoiceDate
+      if (mdFields.totalAmount > 0) parsed.totalAmount = mdFields.totalAmount
+      if (mdFields.subtotal > 0) parsed.subtotal = mdFields.subtotal
+      if (mdFields.taxAmount > 0) parsed.taxAmount = mdFields.taxAmount
+      if (mdFields.lineItems && mdFields.lineItems.length > 0) {
+        parsed.lineItems = mdFields.lineItems
+        parsed._needsTableReconstruction = false // markdown table already parsed
+      }
+      logger.info('scanner.markdown_override', {
+        fields: Object.keys(mdFields).filter((k) => mdFields[k] && (typeof mdFields[k] !== 'number' || mdFields[k] > 0)),
+      })
+    }
 
     // ── Debug: log initial parse result ──────────────────
     logger.info('scanner.initial_parse', {
@@ -227,6 +387,7 @@ export const invoiceScannerController = {
         financialConsistent: intelligence.consistent,
         autoResolutions,
         tableReconstructionMeta: intelligence.tableReconstructionMeta || null,
+        ocrOverallConfidence: scan.ocrConfidence || 0,
       })
       parsed.fieldConfidence = scoring.fieldScores
       parsed.avgConfidence = scoring.compositeScore

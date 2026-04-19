@@ -28,12 +28,17 @@ export default function Finance() {
   }, [])
 
   const receivables = useMemo(
-    () => (invoices || []).filter((invoice) => ['issued', 'overdue'].includes(String(invoice.status).toLowerCase())),
+    () => (invoices || []).filter((invoice) => ['issued', 'overdue'].includes(String(invoice.status).toLowerCase()) && invoice.source !== 'scanner'),
     [invoices],
   )
 
   const paidInvoices = useMemo(
-    () => (invoices || []).filter((invoice) => String(invoice.status).toLowerCase() === 'paid'),
+    () => (invoices || []).filter((invoice) => String(invoice.status).toLowerCase() === 'paid' && invoice.source !== 'scanner'),
+    [invoices],
+  )
+
+  const scannedPayables = useMemo(
+    () => (invoices || []).filter((invoice) => invoice.source === 'scanner'),
     [invoices],
   )
 
@@ -54,6 +59,8 @@ export default function Finance() {
     (po) => po.expectedDeliveryDate && new Date(po.expectedDeliveryDate) < new Date(),
   )
   const totalPayables = openPayables.reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+  const scannedPayableTotal = scannedPayables.reduce((sum, inv) => sum + (inv.totalAmount || inv.amount || 0), 0)
+  const totalPayablesCombined = totalPayables + scannedPayableTotal
   const overduePayableAmount = overduePayables.reduce((sum, po) => sum + (po.totalAmount || 0), 0)
   const expenseAccounts = profitAndLoss?.expenses || []
 
@@ -71,9 +78,9 @@ export default function Finance() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           { label: 'Accounts Receivable', value: fmt(totalReceivable), sub: `${receivables.length} open invoices` },
+          { label: 'Accounts Payable', value: fmt(totalPayablesCombined), sub: `${openPayables.length} POs + ${scannedPayables.length} scanned` },
           { label: 'Revenue Collected', value: fmt(totalPaid), sub: `${paidInvoices.length} paid invoices` },
           { label: 'Fulfilled Orders', value: fmt(orderRevenue), sub: `${fulfilledOrders.length} orders` },
-          { label: 'Total Invoices', value: (invoices || []).length, sub: 'All time' },
           { label: 'Journal Entries', value: journalEntries.length, sub: 'Accounting ledger' },
         ].map((kpi) => (
           <div key={kpi.label} className="bg-white rounded-xl p-4 shadow-sm border border-border">
@@ -206,22 +213,58 @@ export default function Finance() {
       )}
 
       {tab === 'payables' && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-border">
-          <h2 className="text-lg font-semibold text-text-primary mb-2">Accounts Payable</h2>
-          <p className="text-sm text-text-secondary mb-4">Vendor obligations derived from live purchase orders and receipts.</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              { label: 'Current Payables', value: fmt(totalPayables), sub: `${openPayables.length} open purchase orders` },
-              { label: 'Overdue Payables', value: fmt(overduePayableAmount), sub: `${overduePayables.length} delayed supplier orders` },
-              { label: 'Paid (MTD)', value: fmt(totalPaid), sub: `${paidInvoices.length} invoices settled` },
-            ].map((item) => (
-              <div key={item.label} className="rounded-lg border border-border bg-background p-4">
-                <p className="text-xs uppercase tracking-wide text-text-muted">{item.label}</p>
-                <p className="text-xl font-bold text-text-primary mt-1">{item.value}</p>
-                <p className="text-xs text-text-secondary mt-0.5">{item.sub}</p>
-              </div>
-            ))}
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-border">
+            <h2 className="text-lg font-semibold text-text-primary mb-2">Accounts Payable</h2>
+            <p className="text-sm text-text-secondary mb-4">Vendor obligations derived from live purchase orders, receipts, and scanned purchase invoices.</p>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {[
+                { label: 'Total Payables', value: fmt(totalPayablesCombined), sub: `POs + scanned invoices` },
+                { label: 'PO Payables', value: fmt(totalPayables), sub: `${openPayables.length} open purchase orders` },
+                { label: 'Scanned Invoices', value: fmt(scannedPayableTotal), sub: `${scannedPayables.length} vendor invoices` },
+                { label: 'Overdue Payables', value: fmt(overduePayableAmount), sub: `${overduePayables.length} delayed supplier orders` },
+              ].map((item) => (
+                <div key={item.label} className="rounded-lg border border-border bg-background p-4">
+                  <p className="text-xs uppercase tracking-wide text-text-muted">{item.label}</p>
+                  <p className="text-xl font-bold text-text-primary mt-1">{item.value}</p>
+                  <p className="text-xs text-text-secondary mt-0.5">{item.sub}</p>
+                </div>
+              ))}
+            </div>
           </div>
+
+          {scannedPayables.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-border overflow-hidden">
+              <div className="p-4 border-b border-border">
+                <h2 className="text-lg font-semibold text-text-primary">Scanned Purchase Invoices</h2>
+                <p className="text-xs text-text-secondary mt-1">Vendor invoices captured via the invoice scanner.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-border">
+                    <tr>
+                      {['Invoice #', 'Vendor', 'Amount', 'Status', 'Date'].map((heading) => (
+                        <th key={heading} className="text-left p-3 text-xs font-medium text-text-muted uppercase tracking-wide">{heading}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scannedPayables.map((invoice) => (
+                      <tr key={invoice._id || invoice.id} className="border-b border-border hover:bg-gray-50 transition">
+                        <td className="p-3 font-mono text-xs text-blue-600">{invoice.invoiceNumber || invoice.id}</td>
+                        <td className="p-3 font-medium text-text-primary">{invoice.vendorName || invoice.customer || '-'}</td>
+                        <td className="p-3 font-semibold text-text-primary">{fmt(invoice.totalAmount || invoice.amount)}</td>
+                        <td className="p-3">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">{invoice.status}</span>
+                        </td>
+                        <td className="p-3 text-text-secondary text-xs">{invoice.issueDate ? new Date(invoice.issueDate).toLocaleDateString('en-IN') : invoice.date ? new Date(invoice.date).toLocaleDateString('en-IN') : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

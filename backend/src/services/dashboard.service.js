@@ -8,21 +8,21 @@ import { SalesOrder } from '../models/sales-order.model.js'
 import { getDevDashboardSummary } from './dev-fallback.service.js'
 import { logger } from '../utils/logger.js'
 
-const buildRevenueHistory = (invoices, orders = []) => {
+const buildFinanceHistory = (invoices) => {
   const now = new Date()
-  const buckets = []
+  const revBuckets = []
+  const expBuckets = []
 
   for (let offset = 5; offset >= 0; offset -= 1) {
     const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1)
     const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`
-    buckets.push({
-      key,
-      month: monthDate.toLocaleString('en-IN', { month: 'short' }),
-      revenue: 0,
-    })
+    const month = monthDate.toLocaleString('en-IN', { month: 'short' })
+    revBuckets.push({ key, month, revenue: 0 })
+    expBuckets.push({ key, month, expenses: 0 })
   }
 
-  const bucketMap = new Map(buckets.map((bucket) => [bucket.key, bucket]))
+  const revMap = new Map(revBuckets.map((b) => [b.key, b]))
+  const expMap = new Map(expBuckets.map((b) => [b.key, b]))
 
   const invoiceStatuses = new Set(['issued', 'paid', 'overdue'])
   invoices.forEach((invoice) => {
@@ -36,30 +36,18 @@ const buildRevenueHistory = (invoices, orders = []) => {
     if (Number.isNaN(date.getTime())) return
 
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    const bucket = bucketMap.get(key)
-    if (!bucket) return
+    const isExpense = invoice.source === 'scanner'
 
-    bucket.revenue += invoice.totalAmount || 0
+    if (isExpense) {
+      const bucket = expMap.get(key)
+      if (bucket) bucket.expenses += invoice.totalAmount || 0
+    } else {
+      const bucket = revMap.get(key)
+      if (bucket) bucket.revenue += invoice.totalAmount || 0
+    }
   })
 
-  orders.forEach((order) => {
-    const st = String(order.status || '').toLowerCase()
-    if (st === 'cancelled') return
-
-    const sourceDate = order.orderDate || order.createdAt
-    if (!sourceDate) return
-
-    const date = new Date(sourceDate)
-    if (Number.isNaN(date.getTime())) return
-
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    const bucket = bucketMap.get(key)
-    if (!bucket) return
-
-    bucket.revenue += order.totalAmount || 0
-  })
-
-  return buckets
+  return { revBuckets, expBuckets }
 }
 
 export const dashboardService = {
@@ -77,15 +65,21 @@ export const dashboardService = {
       BlockchainRecord.find({ companyId }).lean(),
     ])
 
-    const totalRevenue = invoices
+    const salesInvoices = invoices.filter((inv) => inv.source !== 'scanner')
+    const purchaseInvoices = invoices.filter((inv) => inv.source === 'scanner')
+
+    const totalRevenue = salesInvoices
       .filter((invoice) => invoice.status === 'paid')
+      .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0)
+
+    const totalExpenses = purchaseInvoices
       .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0)
 
     const pendingOrders = orders.filter((order) => order.status === 'pending' || order.status === 'processing').length
     const lowStockCount = products.filter((product) => product.currentStock <= product.reorderLevel).length
     const inventoryValue = products.reduce((sum, product) => sum + (product.currentStock * product.costPrice), 0)
     const pendingInvoices = invoices.filter((invoice) => invoice.status === 'issued' || invoice.status === 'overdue').length
-    const revenueHistory = buildRevenueHistory(invoices, orders)
+    const { revBuckets: revenueHistory, expBuckets: expenseHistory } = buildFinanceHistory(invoices)
 
     logger.info('dashboard.summary_fetched', {
       companyId: companyId.toString(),
@@ -99,12 +93,14 @@ export const dashboardService = {
     return {
       kpis: {
         totalRevenue,
+        totalExpenses,
         totalOrders: orders.length,
         activeCustomers: customers.filter((customer) => customer.isActive).length,
         pendingOrders,
         lowStockCount,
         inventoryValue,
         pendingInvoices,
+        scannedInvoices: purchaseInvoices.length,
         verifiedRecords: blockchainRecords.filter((record) => record.status === 'anchored').length,
       },
       charts: {
@@ -117,6 +113,7 @@ export const dashboardService = {
           value: invoices.filter((invoice) => invoice.status === status).length,
         })),
         revenueHistory,
+        expenseHistory,
       },
       panels: {
         recentOrders: orders.slice(0, 5),

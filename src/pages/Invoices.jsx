@@ -75,6 +75,7 @@ export default function Invoices() {
       gstin: invoice.gstin,
       blockchainHash: invoice.hash || '',
       verificationStatus: invoice.verificationStatus || 'not_requested',
+      source: invoice.source || 'manual',
       mismatchReasons: invoice.mismatchReasons || [],
       fieldDiffs: invoice.fieldDiffs || [],
     })))
@@ -192,6 +193,7 @@ export default function Invoices() {
                 <th className="text-left py-3 px-6 text-xs font-medium text-text-muted uppercase tracking-wide">Invoice</th>
                 <th className="text-left py-3 px-6 text-xs font-medium text-text-muted uppercase tracking-wide">Order</th>
                 <th className="text-left py-3 px-6 text-xs font-medium text-text-muted uppercase tracking-wide">Customer</th>
+                <th className="text-left py-3 px-6 text-xs font-medium text-text-muted uppercase tracking-wide">Source</th>
                 <th className="text-left py-3 px-6 text-xs font-medium text-text-muted uppercase tracking-wide">Store</th>
                 <th className="text-left py-3 px-6 text-xs font-medium text-text-muted uppercase tracking-wide">Issue Date</th>
                 <th className="text-left py-3 px-6 text-xs font-medium text-text-muted uppercase tracking-wide">Amount</th>
@@ -205,6 +207,11 @@ export default function Invoices() {
                   <td className="py-3 px-6 text-sm font-medium text-blue">{invoice.id}</td>
                   <td className="py-3 px-6 text-sm text-text-secondary">{invoice.order || '-'}</td>
                   <td className="py-3 px-6 text-sm text-text-primary">{invoice.customer}</td>
+                  <td className="py-3 px-6">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${invoice.source === 'scanner' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {invoice.source === 'scanner' ? '📄 Scanned' : 'Manual'}
+                    </span>
+                  </td>
                   <td className="py-3 px-6 text-sm text-text-secondary">{invoice.store}</td>
                   <td className="py-3 px-6 text-sm text-text-secondary">{formatDate(invoice.issueDate)}</td>
                   <td className="py-3 px-6 text-sm font-medium text-text-primary">{formatCurrency(invoice.amount)}</td>

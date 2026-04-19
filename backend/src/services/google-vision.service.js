@@ -1,18 +1,37 @@
 /**
  * Google Cloud Vision API — OCR Service
  * ──────────────────────────────────────
- * Uses DOCUMENT_TEXT_DETECTION to extract:
- *   - Full document text
- *   - Word-level bounding boxes (x, y, width, height)
- *   - Per-word confidence scores
+ * Two code paths:
+ *   1. `detectDocument(buffer, apiKey)` — API-key REST call (legacy, image-only).
+ *   2. `detectDocumentText(buffer)` — service-account SDK call (preferred).
  *
- * Returns data in the same shape the pipeline expects so it's a
- * drop-in replacement for Tesseract.js.
+ * Both return: { text, words[{text,bbox,confidence}], confidence }
+ * The SDK path also returns `provider: 'google_vision'`.
  */
 
+import { env } from '../config/env.js'
 import { logger } from '../utils/logger.js'
+import { googleAuthService } from './google-auth.service.js'
 
 const VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate'
+
+let cachedSdkClient = null
+const getSdkClient = async () => {
+  if (cachedSdkClient !== null) return cachedSdkClient
+  if (!(await googleAuthService.isConfigured())) { cachedSdkClient = false; return null }
+  try {
+    const { ImageAnnotatorClient } = await import('@google-cloud/vision')
+    cachedSdkClient = new ImageAnnotatorClient({
+      keyFilename: env.googleApplicationCredentials || undefined,
+      projectId: env.gcpProjectId || undefined,
+    })
+    return cachedSdkClient
+  } catch (err) {
+    logger.error('vision.sdk_init_failed', { message: err.message })
+    cachedSdkClient = false
+    return null
+  }
+}
 
 /**
  * Call Google Cloud Vision DOCUMENT_TEXT_DETECTION.
@@ -117,4 +136,59 @@ export async function detectDocument(imageBuffer, apiKey) {
   }
 }
 
-export const googleVisionService = { detectDocument }
+/**
+ * Service-account-authenticated DOCUMENT_TEXT_DETECTION call. Returns the
+ * same shape as detectDocument but with a `provider` field. Returns null
+ * when no GCP credentials are configured (callers should fall back).
+ */
+export async function detectDocumentText(buffer) {
+  const client = await getSdkClient()
+  if (!client) return null
+  const start = Date.now()
+  try {
+    const [result] = await client.documentTextDetection({ image: { content: buffer } })
+    const annotation = result.fullTextAnnotation
+    const text = annotation?.text || ''
+    const words = []
+    let totalConf = 0
+    let wordCount = 0
+    for (const page of annotation?.pages || []) {
+      for (const block of page.blocks || []) {
+        for (const para of block.paragraphs || []) {
+          for (const word of para.words || []) {
+            const wText = (word.symbols || []).map((s) => s.text).join('')
+            const wConf = word.confidence || 0
+            if (wConf) { totalConf += wConf; wordCount++ }
+            const verts = word.boundingBox?.vertices || []
+            const xs = verts.map((v) => v.x ?? 0)
+            const ys = verts.map((v) => v.y ?? 0)
+            const x0 = xs.length ? Math.min(...xs) : 0
+            const y0 = ys.length ? Math.min(...ys) : 0
+            const x1 = xs.length ? Math.max(...xs) : 0
+            const y1 = ys.length ? Math.max(...ys) : 0
+            words.push({
+              text: wText,
+              confidence: Math.round(wConf * 100),
+              bbox: { x0, y0, x1, y1 },
+              x: x0, y: y0, width: x1 - x0, height: y1 - y0,
+            })
+          }
+        }
+      }
+    }
+    const confidence = wordCount ? Math.round((totalConf / wordCount) * 10000) / 100 : 0
+    logger.info('vision.document_text', {
+      chars: text.length, words: words.length, confidence, durationMs: Date.now() - start,
+    })
+    return { text, words, confidence, provider: 'google_vision' }
+  } catch (err) {
+    logger.warn('vision.detect_failed', { message: err.message })
+    return null
+  }
+}
+
+export const googleVisionService = {
+  detectDocument,
+  detectDocumentText,
+  async isAvailable() { return Boolean(await getSdkClient()) || Boolean(env.googleVisionApiKey) },
+}

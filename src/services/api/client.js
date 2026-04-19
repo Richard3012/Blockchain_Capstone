@@ -49,12 +49,19 @@ async function request(path, options = {}) {
     const msg = payload.message || `Request failed (${response.status})`
     if (response.status === 401) {
       window.sessionStorage.removeItem('blockerp-token')
+      window.sessionStorage.removeItem('blockerp-authenticated')
+      try {
+        const { clearSession } = useStore.getState()
+        clearSession()
+      } catch (_) { /* store not ready */ }
     }
     const suppress = skipErrorToast || shouldSuppressErrorToast(response.status, msg)
     if (response.status !== 401 && !suppress) {
       showErrorToast(msg)
     }
-    throw new Error(msg)
+    const err = new Error(msg)
+    err.suppressed = suppress || response.status === 401
+    throw err
   }
 
   return payload.data

@@ -1,3 +1,11 @@
 node_modules
 .env
+.env.local
+.env.*.local
 dist
+secrets/
+*.gcp-service-account.json
+*-service-account.json
+gcp-credentials.json
+backend/.smoke-server.log
+backend/.smoke-server.err.log

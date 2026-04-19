@@ -74,6 +74,7 @@ export default function Dashboard() {
     { label: 'cancelled', value: orderStats.cancelled },
   ]
   const revenueChartData = dashboardSummary?.charts?.revenueHistory || revenueHistory
+  const expenseChartData = dashboardSummary?.charts?.expenseHistory || []
 
   const donutSegments = [
     { label: 'Processing', value: orderStatusData.find((item) => item.label === 'processing')?.value || 0, color: '#f39c12' },
@@ -99,7 +100,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <KPICard label="Total Revenue" value={<AnimatedNumber value={kpis.totalRevenue} prefix="₹" />} icon={kpiIcons.revenue} iconBg="bg-green/10" iconColor="text-green" change={12.5} />
-        <KPICard label="Total Orders" value={<AnimatedNumber value={kpis.totalOrders} />} icon={kpiIcons.orders} iconBg="bg-blue/10" iconColor="text-blue" change={8.2} />
+        <KPICard label="Total Expenses" value={<AnimatedNumber value={kpis.totalExpenses || 0} prefix="₹" />} icon={kpiIcons.orders} iconBg="bg-red/10" iconColor="text-red" />
         <KPICard label="Active Customers" value={<AnimatedNumber value={kpis.activeCustomers} />} icon={kpiIcons.customers} iconBg="bg-purple/10" iconColor="text-purple" change={2.4} />
         <KPICard label="Pending Orders" value={<AnimatedNumber value={kpis.pendingOrders} />} icon={kpiIcons.pending} iconBg="bg-orange/10" iconColor="text-orange" change={5.1} />
         <KPICard label="Low Stock Alerts" value={<AnimatedNumber value={kpis.lowStockCount} />} icon={kpiIcons.stock} iconBg="bg-red/10" iconColor="text-red" change={-1.6} />
@@ -109,9 +110,15 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-border">
           <div className="mb-4">
             <h3 className="font-semibold text-text-primary">Revenue Over Time</h3>
-            <p className="text-sm text-text-secondary">Monthly totals: issued, paid, and overdue invoices plus non-cancelled sales orders (same month as issue/order date).</p>
+            <p className="text-sm text-text-secondary">Monthly totals from issued, paid, and overdue invoices (same month as issue date).</p>
           </div>
           <LineChart data={revenueChartData} width={500} height={250} />
+          {expenseChartData.length > 0 && expenseChartData.some((d) => d.expenses > 0) && (
+            <div className="mt-4">
+              <h4 className="text-sm font-medium text-text-secondary mb-2">Expenses (Scanned Purchase Invoices)</h4>
+              <LineChart data={expenseChartData.map((d) => ({ ...d, revenue: d.expenses }))} width={500} height={150} />
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-xl p-6 shadow-sm border border-border">

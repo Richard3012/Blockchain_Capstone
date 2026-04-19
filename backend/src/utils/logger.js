@@ -7,6 +7,11 @@ const format = (level, event, data = {}) =>
   })
 
 export const logger = {
+  debug(event, data) {
+    if (process.env.LOG_LEVEL === 'debug' || process.env.NODE_ENV !== 'production') {
+      console.debug(format('debug', event, data))
+    }
+  },
   info(event, data) {
     console.log(format('info', event, data))
   },

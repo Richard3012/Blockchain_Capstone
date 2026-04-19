@@ -37,7 +37,6 @@ await call('auth.me', 'GET', '/api/auth/me')
 
 // ── Dashboard ────────────────────────────────────────────────────────
 await call('dashboard.summary', 'GET', '/api/dashboard/summary')
-await call('dashboard.realtime', 'GET', '/api/dashboard/realtime')
 
 // ── Master Data ──────────────────────────────────────────────────────
 await call('products.list', 'GET', '/api/products')
@@ -46,12 +45,10 @@ await call('stores.list', 'GET', '/api/stores')
 await call('customers.list', 'GET', '/api/customers')
 
 // ── Inventory ────────────────────────────────────────────────────────
-await call('inventory.list', 'GET', '/api/inventory')
-await call('inventory.summary', 'GET', '/api/inventory/summary')
+await call('inventory.low-stock', 'GET', '/api/inventory/low-stock')
 
 // ── Procurement ──────────────────────────────────────────────────────
 await call('procurement.purchase-orders', 'GET', '/api/procurement/purchase-orders')
-await call('procurement.suppliers', 'GET', '/api/procurement/suppliers')
 await call('procurement.goods-receipts', 'GET', '/api/procurement/goods-receipts')
 
 // ── Orders ───────────────────────────────────────────────────────────
@@ -65,7 +62,7 @@ await call('delivery.list', 'GET', '/api/delivery')
 await call('demand.top', 'GET', '/api/demand/top-products?limit=5')
 
 // ── Finance / Wallet ─────────────────────────────────────────────────
-await call('wallet.balance', 'GET', '/api/wallet/balance')
+await call('wallet.status', 'GET', '/api/wallet/status')
 
 // ── Accounting ───────────────────────────────────────────────────────
 await call('accounting.templates', 'GET', '/api/accounting/templates')
@@ -93,10 +90,11 @@ await call('tds.sections', 'GET', '/api/tds/sections')
 await call('tds.deductions', 'GET', '/api/tds/deductions')
 
 // ── HR ───────────────────────────────────────────────────────────────
-await call('hr.employees', 'GET', '/api/hr/employees')
+await call('hr.employees', 'GET', '/api/employees')
 await call('hr.attendance', 'GET', '/api/hr/attendance')
 await call('hr.payroll', 'GET', '/api/hr/payroll')
 await call('hr.leaves', 'GET', '/api/hr/leaves')
+await call('hr.stats', 'GET', '/api/hr/stats')
 
 // ── Audit ────────────────────────────────────────────────────────────
 await call('audit.logs', 'GET', '/api/audit')
@@ -105,18 +103,28 @@ await call('audit.logs', 'GET', '/api/audit')
 await call('blockchain.ledger', 'GET', '/api/blockchain/ledger')
 
 // ── AI Assistant ─────────────────────────────────────────────────────
-await call('assistant.health', 'GET', '/api/assistant/health')
+await call('assistant.query', 'POST', '/api/assistant/query', { query: 'ping' })
+await call('assistant.history', 'GET', '/api/assistant/history')
+
+// ── Analytics (real-time) ────────────────────────────────────────────
+await call('analytics.summary', 'GET', '/api/analytics/summary')
+await call('analytics.revenue-trend', 'GET', '/api/analytics/revenue-trend?period=month')
+await call('analytics.expense-breakdown', 'GET', '/api/analytics/expense-breakdown?period=month')
+await call('analytics.gst-summary', 'GET', '/api/analytics/gst-summary?period=month')
+await call('analytics.vendor-spending', 'GET', '/api/analytics/vendor-spending?period=month&limit=5')
 
 // ── WhatsApp Bot ─────────────────────────────────────────────────────
 await call('whatsapp.status', 'GET', '/api/whatsapp/status')
 
 // ── Operations (manufacturing/projects/assets/docs/approvals/support) ─
-await call('ops.work-orders', 'GET', '/api/work-orders')
+await call('ops.manufacturing', 'GET', '/api/manufacturing')
 await call('ops.projects', 'GET', '/api/projects')
 await call('ops.assets', 'GET', '/api/assets')
 await call('ops.documents', 'GET', '/api/documents')
-await call('ops.approvals', 'GET', '/api/approvals')
-await call('ops.tickets', 'GET', '/api/tickets')
+await call('ops.workflow-requests', 'GET', '/api/workflow-requests')
+await call('ops.support', 'GET', '/api/support')
+await call('ops.employees', 'GET', '/api/employees')
+await call('ops.notifications', 'GET', '/api/notifications')
 
 // ── Report ───────────────────────────────────────────────────────────
 const pad = (s, n) => String(s).padEnd(n)

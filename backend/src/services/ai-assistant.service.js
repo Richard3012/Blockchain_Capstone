@@ -280,12 +280,91 @@ const handlers = {
 
 // ─── Public API ──────────────────────────────────────────────────────
 export const aiAssistantService = {
-  async processQuery(companyId, query) {
+  /**
+   * Process a natural-language query.
+   *
+   * Strategy:
+   *   1. Try the deterministic intent fast-path (cheap, predictable).
+   *   2. Only on `general` (no intent matched), call Vertex Gemini with
+   *      function-calling so the LLM can invoke registered ERP tools.
+   *   3. If Vertex is unavailable (no GCP creds), return the canned
+   *      "type help" message — preserves prior behavior.
+   *
+   * @param {ObjectId|string} companyId
+   * @param {string} query
+   * @param {object} [opts]
+   * @param {ObjectId|string} [opts.userId]
+   * @param {Array<{role:'user'|'model',text:string}>} [opts.history]
+   * @returns {Promise<{ intent, text, data, toolCalls?, provider? }>}
+   */
+  async processQuery(companyId, query, opts = {}) {
     const intent = detectIntent(query)
     logger.info('ai_assistant.query', { intent, query: query.slice(0, 100) })
 
-    const handler = handlers[intent] || handlers.general
-    const result = await handler(companyId)
-    return { intent, ...result }
+    if (intent !== 'general') {
+      const handler = handlers[intent]
+      const result = await handler(companyId)
+      return { intent, ...result }
+    }
+
+    // LLM fallback path
+    try {
+      const [{ vertexAiService }, toolsMod] = await Promise.all([
+        import('./vertex-ai.service.js'),
+        import('./assistant-tools.js'),
+      ])
+      if (await vertexAiService.isAvailable()) {
+        const ctx = { companyId, userId: opts.userId }
+        const history = [
+          ...(opts.history || []),
+          { role: 'user', text: query },
+        ]
+        const systemInstruction = [
+          'You are BlockERP, a helpful AI assistant embedded in an Indian-business ERP system.',
+          'You have access to tools that fetch live data from the user\'s tenant. Always prefer calling a tool over guessing.',
+          'When you receive a tool result, summarize it in plain English with formatted ₹ amounts (Indian numbering).',
+          'If a tool returns chartable data (chartType field), mention what kind of chart could visualise it.',
+          'Never mention the tool names directly in user-facing prose; speak naturally.',
+        ].join(' ')
+
+        const reply = await vertexAiService.chat(history, {
+          tools: toolsMod.TOOL_DECLARATIONS,
+          systemInstruction,
+        })
+        if (!reply) throw new Error('vertex_unavailable')
+
+        // Single round of tool execution (extend to N rounds later if needed).
+        if (reply.toolCalls?.length) {
+          const toolResults = []
+          for (const call of reply.toolCalls) {
+            try {
+              const data = await toolsMod.dispatchTool(call.name, call.args, ctx)
+              toolResults.push({ name: call.name, response: data })
+            } catch (err) {
+              toolResults.push({ name: call.name, response: { error: err.message } })
+            }
+          }
+          const finalReply = await vertexAiService.chatWithToolResults(
+            [...history, { role: 'model', parts: reply.toolCalls.map((c) => ({ functionCall: c })) }],
+            toolResults,
+            { tools: toolsMod.TOOL_DECLARATIONS, systemInstruction },
+          )
+          return {
+            intent: 'llm',
+            text: finalReply?.text || reply.text || 'No response.',
+            data: toolResults.length === 1 ? toolResults[0].response : toolResults.map((r) => r.response),
+            toolCalls: reply.toolCalls.map((c) => ({ name: c.name, args: c.args })),
+            provider: 'vertex_ai',
+          }
+        }
+        return { intent: 'llm', text: reply.text, data: null, provider: 'vertex_ai' }
+      }
+    } catch (err) {
+      logger.warn('ai_assistant.llm_failed', { message: err.message })
+    }
+
+    // Canned fallback
+    const result = await handlers.general()
+    return { intent: 'general', ...result }
   },
 }

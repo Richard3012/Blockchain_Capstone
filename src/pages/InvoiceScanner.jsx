@@ -184,6 +184,13 @@ export default function InvoiceScanner() {
         xhr.onload = () => {
           try {
             const json = JSON.parse(xhr.responseText)
+            if (xhr.status === 401) {
+              window.sessionStorage.removeItem('blockerp-token')
+              window.sessionStorage.removeItem('blockerp-authenticated')
+              try { useStore.getState().clearSession() } catch (_) {}
+              reject(new Error('Session expired — please log in again'))
+              return
+            }
             if (xhr.status >= 400 && xhr.status !== 422) reject(new Error(json.message || json.error || `Server error ${xhr.status}`))
             else resolve(json.data ?? json)
           } catch { reject(new Error(`Server error ${xhr.status}`)) }
@@ -201,6 +208,12 @@ export default function InvoiceScanner() {
     if (body) opts.body = isFormData ? body : JSON.stringify(body)
     const res = await fetch(`${API}${endpoint}`, opts)
     const json = await res.json()
+    if (res.status === 401) {
+      window.sessionStorage.removeItem('blockerp-token')
+      window.sessionStorage.removeItem('blockerp-authenticated')
+      try { useStore.getState().clearSession() } catch (_) {}
+      throw new Error('Session expired — please log in again')
+    }
     if (!res.ok && res.status !== 422) throw new Error(json.message || json.error || `Server error ${res.status}`)
     return json.data ?? json
   }, [])
@@ -258,7 +271,12 @@ export default function InvoiceScanner() {
       }
       updateStage('extract', 'success')
 
-      // Stage 3: Validate
+      // Stage 3: AI Correct (already done server-side within the parse call)
+      updateStage('correct', 'active')
+      await new Promise((r) => setTimeout(r, 200))
+      updateStage('correct', (data.financialFlags?.length > 0) ? 'warning' : 'success')
+
+      // Stage 4: Validate
       updateStage('validate', 'active')
       await new Promise((r) => setTimeout(r, 300))
       updateStage('validate', data.validation?.valid !== false ? 'success' : 'warning')
@@ -322,7 +340,7 @@ export default function InvoiceScanner() {
     setLoading(true)
     setUploadProgress(0)
     setPipelineStages((prev) => prev.map((s) =>
-      ['upload', 'extract', 'validate'].includes(s.id) ? { ...s, status: 'success' } : { ...s, status: 'pending' },
+      ['upload', 'preprocess', 'extract', 'correct', 'validate'].includes(s.id) ? { ...s, status: 'success' } : { ...s, status: 'pending' },
     ))
 
     try {
@@ -576,6 +594,8 @@ export default function InvoiceScanner() {
   // Fields auto-resolved by intelligence pipeline are trusted — no manual block
   const hasValidationErrors = (validation?.errors || []).filter((e) => {
     // Don't count errors for fields that were auto-resolved with high confidence
+    if (e.field === 'vendorName' && autoResolutions.vendorName?.resolved && fields.vendorName) return false
+    if (e.field === 'totalAmount' && autoResolutions.financials?.resolved && fields.totalAmount > 0) return false
     if (e.field === 'gstin' && autoResolutions.gstin?.resolved && fields.gstin) return false
     if (e.field === 'invoiceDate' && autoResolutions.invoiceDate?.resolved && fields.invoiceDate) return false
     if (e.field === 'lineItems' && autoResolutions.lineItems?.resolved) return false
@@ -590,7 +610,10 @@ export default function InvoiceScanner() {
   const hasLowConfidenceCritical = Object.entries(fieldConf)
     .some(([key, val]) => ['vendorName', 'invoiceNumber', 'totalAmount', 'gstin'].includes(key)
       && val.confidence < CONFIDENCE_HARD_BLOCK && !val.autoResolved)
-  const missingRequiredFields = !fields.vendorName || !fields.totalAmount || fields.totalAmount <= 0
+  const missingFieldNames = []
+  if (!fields.vendorName && !autoResolutions.vendorName?.resolved) missingFieldNames.push('vendor name')
+  if ((!fields.totalAmount || fields.totalAmount <= 0) && !autoResolutions.financials?.resolved) missingFieldNames.push('total amount')
+  const missingRequiredFields = missingFieldNames.length > 0
   const missingGSTIN = !fields.gstin && !autoResolutions.gstin?.resolved
   const missingDate = !fields.invoiceDate && !autoResolutions.invoiceDate?.resolved
   const hasExactDuplicate = ocrDuplicates.some((d) => d.type === 'exact')
@@ -605,7 +628,7 @@ export default function InvoiceScanner() {
   const postingBlockers = []
   if (hasValidationErrors) postingBlockers.push('Validation errors must be resolved')
   if (hasLowConfidenceCritical) postingBlockers.push('Critical fields have very low AI confidence (<50%) — verify manually')
-  if (missingRequiredFields) postingBlockers.push('Required fields missing (vendor name, total amount)')
+  if (missingRequiredFields) postingBlockers.push(`Required fields missing: ${missingFieldNames.join(', ')}`)
   if (missingGSTIN) postingBlockers.push('GSTIN is required for GST compliance — enter manually')
   if (missingDate) postingBlockers.push('Invoice date is required — enter manually')
   if (hasExactDuplicate) postingBlockers.push('Exact duplicate invoice detected — cannot post')

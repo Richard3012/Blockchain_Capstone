@@ -1,5 +1,5 @@
 // Comprehensive page-level smoke test: GET + write operations for every module
-const BASE = 'http://localhost:4000'
+const BASE = process.env.BASE || 'http://localhost:4000'
 const results = []
 
 const call = async (label, method, path, body, expectStatuses = [200, 201]) => {
