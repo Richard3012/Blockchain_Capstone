@@ -9,7 +9,6 @@ import { apiClient } from '../services/api/client'
  */
 
 const fetched = {}
-const warnedIntegrity = new Set()
 
 const normalizeOrderStatus = (status) => {
   const value = String(status || 'pending').toLowerCase()
@@ -62,7 +61,6 @@ export function useLiveData(...collections) {
   const setInventory = useStore((s) => s.setInventory)
   const setAuditLog = useStore((s) => s.setAuditLog)
   const setBlockchainTxs = useStore((s) => s.setBlockchainTxs)
-  const addToast = useStore((s) => s.addToast)
 
   const collectionsRef = useRef(collections)
   collectionsRef.current = collections
@@ -89,15 +87,6 @@ export function useLiveData(...collections) {
               mismatchReasons: o.mismatchReasons || [],
               fieldDiffs: o.fieldDiffs || [],
             }))
-            mapped
-              .filter((order) => order.verificationStatus === 'failed' && order.tamperSource === 'external_or_untracked')
-              .forEach((order) => {
-                const warningKey = `order:${order.mongoId}:${order.verificationStatus}:${order.tamperSource}`
-                if (!warnedIntegrity.has(warningKey)) {
-                  warnedIntegrity.add(warningKey)
-                  addToast(`${order.id} was modified outside the trusted application flow`, 'error')
-                }
-              })
             setOrders(mapped)
           })
           break
@@ -126,15 +115,6 @@ export function useLiveData(...collections) {
               mismatchReasons: i.mismatchReasons || [],
               fieldDiffs: i.fieldDiffs || [],
             }))
-            mapped
-              .filter((invoice) => invoice.verificationStatus === 'failed' && invoice.tamperSource === 'external_or_untracked')
-              .forEach((invoice) => {
-                const warningKey = `invoice:${invoice.mongoId}:${invoice.verificationStatus}:${invoice.tamperSource}`
-                if (!warnedIntegrity.has(warningKey)) {
-                  warnedIntegrity.add(warningKey)
-                  addToast(`${invoice.id} was modified outside the trusted application flow`, 'error')
-                }
-              })
             setInvoices(mapped)
           })
           break
@@ -212,21 +192,12 @@ export function useLiveData(...collections) {
               trustedHash: b.trustedHash || b.recordHash || null,
               virtual: Boolean(b.virtual),
             }))
-            mapped
-              .filter((entry) => entry.status === 'failed' && entry.tamperSource === 'external_or_untracked')
-              .forEach((entry) => {
-                const warningKey = `ledger:${entry.id}:${entry.status}:${entry.tamperSource}`
-                if (!warnedIntegrity.has(warningKey)) {
-                  warnedIntegrity.add(warningKey)
-                  addToast(`${entry.entityLabel} was modified outside the trusted application flow`, 'error')
-                }
-              })
             setBlockchainTxs(mapped)
           })
           break
       }
     }
-  }, [setOrders, setInvoices, setCustomers, setInventory, setAuditLog, setBlockchainTxs, addToast])
+  }, [setOrders, setInvoices, setCustomers, setInventory, setAuditLog, setBlockchainTxs])
 }
 
 /** Reset the fetch cache so the next useLiveData call re-fetches */

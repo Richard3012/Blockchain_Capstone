@@ -32,7 +32,7 @@ export default function Modal({ title, children, onClose, isOpen = true, size = 
       onClick={handleClose}
     >
       <div 
-        className={`bg-white rounded-xl ${sizeClasses[size]} w-full mx-4 shadow-2xl animate-modal-in max-h-[90vh] overflow-y-auto`}
+        className={`bg-white rounded-xl ${sizeClasses[size]} w-full mx-4 shadow-2xl animate-modal-in max-h-[90vh] overflow-y-auto overflow-x-hidden min-w-0`}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
@@ -48,7 +48,7 @@ export default function Modal({ title, children, onClose, isOpen = true, size = 
             </button>
           </div>
         )}
-        <div className={title ? "p-6" : ""}>
+        <div className={title ? 'p-6 min-w-0 overflow-x-hidden' : 'min-w-0 overflow-x-hidden'}>
           {children}
         </div>
       </div>

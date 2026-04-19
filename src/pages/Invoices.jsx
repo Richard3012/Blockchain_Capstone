@@ -81,9 +81,14 @@ export default function Invoices() {
   }
 
   const handleMarkPaid = async (invoice) => {
+    const oid = String(invoice.mongoId || '')
+    if (!/^[a-f0-9]{24}$/i.test(oid)) {
+      addToast('Invalid invoice id — refresh the page and try again.', 'error')
+      return
+    }
     setBusyInvoiceId(invoice.id)
     try {
-      await apiClient.put(`/invoices/${invoice.mongoId}/mark-paid`, {})
+      await apiClient.put(`/invoices/${oid}/mark-paid`, {})
       await reloadInvoices()
       addToast(`${invoice.id} marked as paid`, 'success')
     } catch (error) {

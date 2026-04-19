@@ -8,7 +8,7 @@ import { SalesOrder } from '../models/sales-order.model.js'
 import { getDevDashboardSummary } from './dev-fallback.service.js'
 import { logger } from '../utils/logger.js'
 
-const buildRevenueHistory = (invoices) => {
+const buildRevenueHistory = (invoices, orders = []) => {
   const now = new Date()
   const buckets = []
 
@@ -24,7 +24,11 @@ const buildRevenueHistory = (invoices) => {
 
   const bucketMap = new Map(buckets.map((bucket) => [bucket.key, bucket]))
 
+  const invoiceStatuses = new Set(['issued', 'paid', 'overdue'])
   invoices.forEach((invoice) => {
+    const st = String(invoice.status || '').toLowerCase()
+    if (!invoiceStatuses.has(st)) return
+
     const sourceDate = invoice.issueDate || invoice.createdAt
     if (!sourceDate) return
 
@@ -36,6 +40,23 @@ const buildRevenueHistory = (invoices) => {
     if (!bucket) return
 
     bucket.revenue += invoice.totalAmount || 0
+  })
+
+  orders.forEach((order) => {
+    const st = String(order.status || '').toLowerCase()
+    if (st === 'cancelled') return
+
+    const sourceDate = order.orderDate || order.createdAt
+    if (!sourceDate) return
+
+    const date = new Date(sourceDate)
+    if (Number.isNaN(date.getTime())) return
+
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const bucket = bucketMap.get(key)
+    if (!bucket) return
+
+    bucket.revenue += order.totalAmount || 0
   })
 
   return buckets
@@ -64,7 +85,7 @@ export const dashboardService = {
     const lowStockCount = products.filter((product) => product.currentStock <= product.reorderLevel).length
     const inventoryValue = products.reduce((sum, product) => sum + (product.currentStock * product.costPrice), 0)
     const pendingInvoices = invoices.filter((invoice) => invoice.status === 'issued' || invoice.status === 'overdue').length
-    const revenueHistory = buildRevenueHistory(invoices)
+    const revenueHistory = buildRevenueHistory(invoices, orders)
 
     logger.info('dashboard.summary_fetched', {
       companyId: companyId.toString(),

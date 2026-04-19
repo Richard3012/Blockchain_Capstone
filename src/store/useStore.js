@@ -269,6 +269,7 @@ export const useStore = create((set, get) => ({
   removeToast: (id) => set((state) => ({
     toasts: state.toasts.filter(t => t.id !== id)
   })),
+  clearToasts: () => set({ toasts: [] }),
 
   // Modal
   modal: null,

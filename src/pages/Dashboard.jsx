@@ -109,7 +109,7 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-border">
           <div className="mb-4">
             <h3 className="font-semibold text-text-primary">Revenue Over Time</h3>
-            <p className="text-sm text-text-secondary">Monthly aggregation from MongoDB invoices</p>
+            <p className="text-sm text-text-secondary">Monthly totals: issued, paid, and overdue invoices plus non-cancelled sales orders (same month as issue/order date).</p>
           </div>
           <LineChart data={revenueChartData} width={500} height={250} />
         </div>

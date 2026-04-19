@@ -8,6 +8,7 @@ const router = Router()
 router.use(requireAuth)
 
 router.get('/ledger', blockchainController.ledger)
+router.get('/verification-log', blockchainController.verificationLog)
 router.post('/anchor/:entityType/:entityId', validateObjectIdParams('entityId'), blockchainController.anchor)
 router.get('/verify/:entityType/:entityId', validateObjectIdParams('entityId'), blockchainController.verify)
 

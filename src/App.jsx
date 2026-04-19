@@ -143,6 +143,7 @@ export default function App() {
       authService.setLastCredentials(credentials.email.trim(), credentials.password)
       authService.setToken(result.token)
       setSession({ token: result.token, user: result.user })
+      useStore.getState().clearToasts()
       addToast('Login successful', 'success')
     } catch (error) {
       setAuthError(error.message)

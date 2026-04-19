@@ -22,16 +22,18 @@ app.use(compression())
 // Rate limiting — stricter on auth routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // 20 attempts per window
+  max: 200, // failed auth attempts (successful logins are not counted)
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   message: { success: false, message: 'Too many attempts, please try again later.' },
 })
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 200, // 200 requests per minute
+  max: 600, // SPA boot + live data fetches; avoid blocking normal ERP usage
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   message: { success: false, message: 'Too many requests, please slow down.' },
 })
 
@@ -82,9 +84,14 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
-// Apply rate limiters
-app.use('/api/auth', authLimiter)
-app.use('/api', apiLimiter)
+// Apply rate limiters (auth routes use auth limiter only — avoid stacking general API limiter on /api/auth/*)
+app.use('/api', (req, res, next) => {
+  const base = req.originalUrl.split('?')[0]
+  if (base.startsWith('/api/auth')) {
+    return authLimiter(req, res, next)
+  }
+  return apiLimiter(req, res, next)
+})
 
 app.use('/api', apiRouter)
 app.use(notFoundHandler)

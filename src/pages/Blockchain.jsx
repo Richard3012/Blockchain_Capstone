@@ -48,7 +48,7 @@ export default function Blockchain() {
         if (logFrom) qs.set('from', logFrom)
         if (logTo) qs.set('to', logTo)
         qs.set('limit', '300')
-        const rows = await apiClient.get(`/verification-events?${qs.toString()}`)
+        const rows = await apiClient.get(`/blockchain/verification-log?${qs.toString()}`)
         if (!cancelled) setVerificationLog(Array.isArray(rows) ? rows : [])
       } catch {
         if (!cancelled) setVerificationLog([])

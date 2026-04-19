@@ -38,9 +38,9 @@ export const authService = {
     if (password) storage().setItem(LAST_PASSWORD_KEY, password)
   },
   login(payload) {
-    return apiClient.post('/auth/login', payload)
+    return apiClient.post('/auth/login', payload, { skipErrorToast: true })
   },
   me() {
-    return apiClient.get('/auth/me')
+    return apiClient.get('/auth/me', { skipErrorToast: true })
   },
 }

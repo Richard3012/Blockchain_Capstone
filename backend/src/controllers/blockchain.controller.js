@@ -7,6 +7,7 @@ import { InventoryTransaction } from '../models/inventory-transaction.model.js'
 import { PurchaseOrder } from '../models/purchase-order.model.js'
 import { SalesOrder } from '../models/sales-order.model.js'
 import { blockchainService } from '../services/blockchain.service.js'
+import { verificationEventService } from '../services/verification-event.service.js'
 import { ipfsService } from '../services/ipfs.service.js'
 import { verificationService } from '../services/verification.service.js'
 import { chainIntegrityHash } from '../utils/hash-record.js'
@@ -195,5 +196,17 @@ export const blockchainController = {
       count: mergedData.length,
     })
     res.json({ success: true, data: mergedData })
+  }),
+
+  verificationLog: asyncHandler(async (req, res) => {
+    const { status, entityType, from, to, limit } = req.query
+    const rows = await verificationEventService.list(req.user.companyId, {
+      status,
+      entityType,
+      from,
+      to,
+      limit,
+    })
+    res.json({ success: true, data: rows })
   }),
 }

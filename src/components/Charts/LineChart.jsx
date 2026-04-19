@@ -12,8 +12,8 @@ export default function LineChart({ data, width = 500, height = 250 }) {
   const { path, points, maxValue, yLabels } = useMemo(() => {
     if (!data || data.length === 0) return { path: '', points: [], maxValue: 0, yLabels: [] }
     
-    const values = data.map(d => d.revenue)
-    const max = Math.max(...values) * 1.1
+    const values = data.map((d) => Number(d.revenue) || 0)
+    const max = Math.max(1, ...values) * 1.1
     const min = 0
     
     // Generate y-axis labels
@@ -27,9 +27,10 @@ export default function LineChart({ data, width = 500, height = 250 }) {
       })
     }
 
+    const denom = data.length <= 1 ? 1 : data.length - 1
     const pts = data.map((d, i) => ({
-      x: (i / (data.length - 1)) * chartWidth,
-      y: chartHeight - ((d.revenue - min) / (max - min)) * chartHeight,
+      x: (i / denom) * chartWidth,
+      y: chartHeight - (((Number(d.revenue) || 0) - min) / (max - min)) * chartHeight,
       ...d
     }))
 

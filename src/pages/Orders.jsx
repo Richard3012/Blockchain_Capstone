@@ -325,7 +325,7 @@ export default function Orders() {
 
       {selectedOrder && (
         <Modal title={`Order ${selectedOrder.id}`} onClose={() => { setSelectedOrder(null); setSelectedOrderDetail(null) }}>
-          <div className="space-y-4 max-h-[min(85vh,720px)] overflow-y-auto pr-1">
+          <div className="space-y-4 max-h-[min(85vh,720px)] overflow-y-auto overflow-x-hidden pr-1 min-w-0 break-words">
             {(() => {
               const orderData = selectedOrderDetail || selectedOrder
               const latestTrackedModification = selectedOrderDetail?.auditTrail?.find((entry) => entry.metadata?.changedFields?.length > 0)

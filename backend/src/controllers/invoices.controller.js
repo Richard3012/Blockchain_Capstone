@@ -1,11 +1,15 @@
 import crypto from 'crypto'
 
+import mongoose from 'mongoose'
 import { z } from 'zod'
 
 import { asyncHandler } from '../middlewares/async-handler.js'
+import { Customer } from '../models/customer.model.js'
 import { Invoice } from '../models/invoice.model.js'
 import { Payment } from '../models/payment.model.js'
 import { SalesOrder } from '../models/sales-order.model.js'
+import { Store } from '../models/store.model.js'
+import { User } from '../models/user.model.js'
 import { BlockchainRecord } from '../models/blockchain-record.model.js'
 import { auditService } from '../services/audit.service.js'
 import { blockchainService } from '../services/blockchain.service.js'
@@ -29,6 +33,41 @@ const paymentSchema = z.object({
   reference: z.string().optional(),
   notes: z.string().optional(),
 })
+
+const isOid24 = (v) => {
+  if (v == null || v === '') return false
+  const s = String(v)
+  return s.length === 24 && mongoose.Types.ObjectId.isValid(s)
+}
+
+/** Avoid Mongoose populate CastErrors when legacy rows have invalid ref strings (e.g. bad order id). */
+const batchEnrichInvoices = async (rows, companyId) => {
+  if (!rows.length) return []
+  const customerIds = [...new Set(rows.map((r) => r.customer).filter(isOid24))]
+  const storeIds = [...new Set(rows.map((r) => r.store).filter(isOid24))]
+  const orderIds = [...new Set(rows.map((r) => r.order).filter(isOid24))]
+  const userIds = [...new Set(rows.map((r) => r.createdBy).filter(isOid24))]
+
+  const [customers, stores, orders, users] = await Promise.all([
+    customerIds.length ? Customer.find({ _id: { $in: customerIds }, companyId }).lean() : [],
+    storeIds.length ? Store.find({ _id: { $in: storeIds }, companyId }).lean() : [],
+    orderIds.length ? SalesOrder.find({ _id: { $in: orderIds }, companyId }).lean() : [],
+    userIds.length ? User.find({ _id: { $in: userIds } }).select('name email role').lean() : [],
+  ])
+
+  const cm = new Map(customers.map((c) => [String(c._id), c]))
+  const sm = new Map(stores.map((s) => [String(s._id), s]))
+  const om = new Map(orders.map((o) => [String(o._id), o]))
+  const um = new Map(users.map((u) => [String(u._id), u]))
+
+  return rows.map((r) => ({
+    ...r,
+    customer: isOid24(r.customer) ? (cm.get(String(r.customer)) || r.customer) : r.customer,
+    store: isOid24(r.store) ? (sm.get(String(r.store)) || r.store) : r.store,
+    order: isOid24(r.order) ? (om.get(String(r.order)) || r.order) : null,
+    createdBy: isOid24(r.createdBy) ? (um.get(String(r.createdBy)) || r.createdBy) : r.createdBy,
+  }))
+}
 
 export const invoicesController = {
   create: asyncHandler(async (req, res) => {
@@ -72,9 +111,10 @@ export const invoicesController = {
     res.status(201).json({ success: true, data: { invoice, blockchainRecord } })
   }),
   list: asyncHandler(async (req, res) => {
-    const invoices = await Invoice.find(companyFilter(req.user)).populate('customer order store createdBy').sort({ createdAt: -1 })
+    const rows = await Invoice.find(companyFilter(req.user)).sort({ createdAt: -1 }).lean()
+    const populated = await batchEnrichInvoices(rows, req.user.companyId)
     const data = await Promise.all(
-      invoices.map(async (invoice) => {
+      populated.map(async (invoice) => {
         const verification = await verificationService.verifyEntity({
           companyId: req.user.companyId,
           entityType: 'invoice',
@@ -83,7 +123,7 @@ export const invoicesController = {
           logEvent: false,
         })
         return {
-          ...invoice.toObject(),
+          ...invoice,
           verificationStatus: verification?.verificationStatus || invoice.verificationStatus,
           tamperSource: verification?.tamperSource || null,
           mismatchReasons: verification?.mismatchReasons || [],
@@ -96,12 +136,13 @@ export const invoicesController = {
     res.json({ success: true, data })
   }),
   getById: asyncHandler(async (req, res) => {
-    const data = await Invoice.findOne({ _id: req.params.id, companyId: req.user.companyId }).populate('customer order store createdBy')
-    if (!data) {
+    const row = await Invoice.findOne({ _id: req.params.id, companyId: req.user.companyId }).lean()
+    if (!row) {
       const error = new Error('Invoice not found')
       error.statusCode = 404
       throw error
     }
+    const [data] = await batchEnrichInvoices([row], req.user.companyId)
     res.json({ success: true, data })
   }),
   markPaid: asyncHandler(async (req, res) => {
@@ -150,7 +191,8 @@ export const invoicesController = {
 
     logger.info('finance.payment_recorded', { invoiceId: invoice._id.toString(), paymentId: payment._id.toString(), amount })
 
-    const refreshed = await Invoice.findOne({ _id: invoice._id, companyId: req.user.companyId }).populate('customer order store createdBy')
+    const refreshedRow = await Invoice.findOne({ _id: invoice._id, companyId: req.user.companyId }).lean()
+    const [refreshed] = await batchEnrichInvoices(refreshedRow ? [refreshedRow] : [], req.user.companyId)
     res.json({ success: true, data: { invoice: refreshed, payment } })
   }),
   verify: asyncHandler(async (req, res) => {
