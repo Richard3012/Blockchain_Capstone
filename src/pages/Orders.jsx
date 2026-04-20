@@ -289,12 +289,22 @@ export default function Orders() {
               </tr>
             </thead>
             <tbody>
-              {paginatedOrders.map((order) => (
-                <tr key={order.mongoId} className="border-b border-border last:border-0 hover:bg-gray-50 transition-colors" onClick={() => loadOrderDetail(order)}>
-                  <td className="py-3 px-6 text-sm font-medium text-blue">{order.id}</td>
-                  <td className="py-3 px-6 text-sm text-text-primary">{order.customer}</td>
-                  <td className="py-3 px-6 text-sm text-text-secondary">{formatDate(order.date)}</td>
-                  <td className="py-3 px-6 text-sm font-medium text-text-primary">{formatCurrency(order.total)}</td>
+              {paginatedOrders.map((order) => {
+                const isTampered = String(order.verificationStatus || '').toLowerCase() === 'failed'
+                  || (order.mismatchReasons?.length || 0) > 0
+                  || (order.fieldDiffs?.length || 0) > 0
+                const rowClass = isTampered
+                  ? 'border-b border-red/40 last:border-0 bg-red/10 hover:bg-red/20 transition-colors ring-1 ring-inset ring-red/30'
+                  : 'border-b border-border last:border-0 hover:bg-gray-50 transition-colors'
+                return (
+                <tr key={order.mongoId} className={rowClass} onClick={() => loadOrderDetail(order)} title={isTampered ? 'Blockchain integrity mismatch — possible tampering detected' : undefined}>
+                  <td className={`py-3 px-6 text-sm font-medium ${isTampered ? 'text-red' : 'text-blue'}`}>
+                    {isTampered && <span className="mr-1" aria-hidden>⚠</span>}
+                    {order.id}
+                  </td>
+                  <td className={`py-3 px-6 text-sm ${isTampered ? 'text-red' : 'text-text-primary'}`}>{order.customer}</td>
+                  <td className={`py-3 px-6 text-sm ${isTampered ? 'text-red' : 'text-text-secondary'}`}>{formatDate(order.date)}</td>
+                  <td className={`py-3 px-6 text-sm font-medium ${isTampered ? 'text-red' : 'text-text-primary'}`}>{formatCurrency(order.total)}</td>
                   <td className="py-3 px-6">{getStatusBadge(order.status)}</td>
                   <td className="py-3 px-6">{getIntegrityBadge(order.verificationStatus)}</td>
                   <td className="py-3 px-6" onClick={(event) => event.stopPropagation()}>
@@ -307,7 +317,8 @@ export default function Orders() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
